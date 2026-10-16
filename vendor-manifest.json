@@ -1,0 +1,39 @@
+{
+  "codemirror": {
+    "version": "5.65.21",
+    "license": "MIT",
+    "source": "https://registry.npmjs.org/codemirror/-/codemirror-5.65.21.tgz",
+    "integrity": "sha512-6teYk0bA0nR3QP0ihGMoxuKzpl5W80FpnHpBJpgy66NK3cZv5b/d/HY8PnRvfSsCG1MTfr92u2WUl+wT0E40mQ==",
+    "integrityVerifiedDuringVendoring": true,
+    "modules": [
+      "addon/mode/simple.js",
+      "mode/meta.js",
+      "mode/xml/xml.js",
+      "mode/javascript/javascript.js",
+      "mode/css/css.js",
+      "mode/htmlmixed/htmlmixed.js",
+      "mode/jsx/jsx.js",
+      "mode/markdown/markdown.js",
+      "mode/python/python.js",
+      "mode/rust/rust.js",
+      "mode/go/go.js",
+      "mode/clike/clike.js",
+      "mode/shell/shell.js",
+      "mode/yaml/yaml.js",
+      "mode/toml/toml.js",
+      "mode/properties/properties.js",
+      "mode/powershell/powershell.js",
+      "mode/sql/sql.js",
+      "addon/search/searchcursor.js",
+      "addon/edit/matchbrackets.js"
+    ]
+  },
+  "markdownIt": {
+    "version": "15.0.3",
+    "license": "MIT",
+    "source": "https://registry.npmjs.org/markdown-it/-/markdown-it-15.0.3.tgz",
+    "integrity": "sha512-+Az7Ojz3iRGu8KYMvJ6xVhvrxP3eE+vEtJX75Ow88XBpcQNV/0lGX5ZynIIBftREo4DC2jsveAMDaeltmm8QvQ==",
+    "integrityVerifiedDuringVendoring": true,
+    "distribution": "dist/browser/markdown-it.umd.min.js"
+  }
+}
