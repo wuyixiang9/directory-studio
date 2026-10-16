@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Directory Studio - 本地目录与文本编辑
 // @namespace    local.directory-studio
-// @version      1.3.0
+// @version      1.3.1
 // @description  本地目录浏览、离线代码编辑与 Markdown/Mermaid 预览；不上传、不自动覆盖原文件。
 // @homepageURL  https://github.com/wuyixiang9/directory-studio
 // @supportURL   https://github.com/wuyixiang9/directory-studio/issues
