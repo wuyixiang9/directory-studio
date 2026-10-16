@@ -35,5 +35,15 @@
     "integrity": "sha512-+Az7Ojz3iRGu8KYMvJ6xVhvrxP3eE+vEtJX75Ow88XBpcQNV/0lGX5ZynIIBftREo4DC2jsveAMDaeltmm8QvQ==",
     "integrityVerifiedDuringVendoring": true,
     "distribution": "dist/browser/markdown-it.umd.min.js"
+  },
+  "mermaid": {
+    "version": "12.2.0",
+    "license": "MIT (package); bundled dependency notices remain in the original distribution",
+    "source": "https://registry.npmjs.org/mermaid/-/mermaid-12.2.0.tgz",
+    "integrity": "sha512-w7nr/SFrLO7BaVTs3dQTvYSV6nYSBj0Yy9DjBhsIJtAcHqRzXSq4Pg32ujHZ/AdWsAMNEvvhbm5dt9E2tOiHzw==",
+    "integrityVerifiedDuringVendoring": true,
+    "distribution": "mermaid.min.js",
+    "distributionBytes": 5494801,
+    "embeddedThirdPartyNotices": true
   }
 }
