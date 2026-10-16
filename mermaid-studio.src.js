@@ -208,8 +208,41 @@ function sanitizeMermaidSVG(source, renderID) {
   return new XMLSerializer().serializeToString(svg);
 }
 
+function createMermaidHeightChoices() {
+  const choices = new Map();
+  return {
+    reconcile(blocks) {
+      const occurrences = new Map();
+      const present = new Set();
+      const keys = blocks.map((source, index) => {
+        if (index >= MERMAID_STUDIO_LIMITS.blocks) return null;
+        try { validateMermaidSource(source); } catch (_) { return null; }
+        const occurrence = occurrences.get(source) || 0;
+        occurrences.set(source, occurrence + 1);
+        const key = JSON.stringify([source, occurrence]);
+        present.add(key);
+        return key;
+      });
+      for (const key of choices.keys()) if (!present.has(key)) choices.delete(key);
+      for (const key of present) if (!choices.has(key)) choices.set(key, false);
+      return keys;
+    },
+    isFixed(key) { return choices.get(key) === true; },
+    toggle(key) {
+      if (!choices.has(key)) return null;
+      const fixed = !choices.get(key);
+      choices.set(key, fixed);
+      return fixed;
+    },
+    clear() { choices.clear(); },
+    get size() { return choices.size; }
+  };
+}
+
 function createMermaidPreviewController(host, preview) {
   const renderer = createMermaidRenderer(host);
+  const heightChoices = createMermaidHeightChoices();
+  let surfaceSequence = 0;
   let generation = 0;
   let disposed = false;
   const blobs = new Set();
@@ -224,23 +257,51 @@ function createMermaidPreviewController(host, preview) {
   }
   return {
     invalidate,
-    dispose() { disposed = true; invalidate(); renderer.dispose(); },
+    dispose() { disposed = true; heightChoices.clear(); invalidate(); renderer.dispose(); },
     async render(blocks, theme, active) {
       const current = generation;
       const live = () => !disposed && current === generation && host.isConnected && active();
+      if (!live()) return;
+      const heightKeys = heightChoices.reconcile(blocks);
       const jobs = [];
       for (let index = 0; index < blocks.length; index++) {
         const card = preview.querySelector('[data-mermaid-index="' + index + '"]');
         if (!card) continue;
+        const key = heightKeys[index];
+        const heading = document.createElement('div');
+        heading.className = 'lts-mermaid-heading';
         const label = document.createElement('div');
         label.className = 'lts-mermaid-label';
         label.textContent = 'MERMAID';
+        const heightButton = document.createElement('button');
+        heightButton.type = 'button';
+        heightButton.className = 'lts-button lts-mermaid-height';
+        heading.append(label, heightButton);
         const status = document.createElement('p');
         status.className = 'lts-mermaid-status';
         status.setAttribute('role', 'status');
         status.textContent = '等待渲染…';
         const surface = document.createElement('div');
         surface.className = 'lts-mermaid-surface';
+        surface.id = 'lts-mermaid-surface-' + (++surfaceSequence);
+        heightButton.setAttribute('aria-controls', surface.id);
+        const applyHeight = fixed => {
+          surface.dataset.height = fixed ? 'fixed' : 'auto';
+          surface.scrollTop = 0;
+          heightButton.textContent = fixed ? '自动撑开' : '固定高度';
+          heightButton.setAttribute('aria-pressed', String(fixed));
+          const description = fixed
+            ? '自动撑开：取消 640px 高度上限；当前为固定高度。'
+            : '固定高度：图表最多显示 640px 并在图内滚动；当前自动撑开。';
+          heightButton.title = description;
+          heightButton.setAttribute('aria-label', description);
+        };
+        applyHeight(heightChoices.isFixed(key));
+        heightButton.addEventListener('click', () => {
+          if (heightButton.disabled || !live() || !card.isConnected || !preview.contains(card)) return;
+          const fixed = heightChoices.toggle(key);
+          if (fixed !== null) applyHeight(fixed);
+        });
         const details = document.createElement('details');
         details.className = 'lts-mermaid-source';
         const summary = document.createElement('summary');
@@ -250,9 +311,16 @@ function createMermaidPreviewController(host, preview) {
         code.textContent = blocks[index];
         pre.append(code);
         details.append(summary, pre);
-        card.replaceChildren(label, status, surface, details);
+        card.replaceChildren(heading, status, surface, details);
         card.dataset.state = 'pending';
-        const fail = message => { card.dataset.state = 'error'; status.textContent = message; details.open = true; };
+        const fail = message => {
+          card.dataset.state = 'error';
+          status.textContent = message;
+          details.open = true;
+          heightButton.disabled = true;
+          heightButton.title = '图表未渲染，暂不可切换高度；错误提示和源码不会折叠。';
+          heightButton.setAttribute('aria-label', heightButton.textContent + '不可用：' + heightButton.title);
+        };
         if (index >= MERMAID_STUDIO_LIMITS.blocks) { fail('每次预览最多渲染 12 个图表；源码仍可编辑、复制和下载。'); continue; }
         try { validateMermaidSource(blocks[index]); } catch (error) { fail(error.message); continue; }
         jobs.push({ card, status, surface, fail, source: blocks[index] });

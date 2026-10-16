@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Directory Studio - 本地目录与文本编辑
 // @namespace    local.directory-studio
-// @version      1.3.1
+// @version      1.3.2
 // @description  本地目录浏览、离线代码编辑与 Markdown/Mermaid 预览；不上传、不自动覆盖原文件。
 // @homepageURL  https://github.com/wuyixiang9/directory-studio
 // @supportURL   https://github.com/wuyixiang9/directory-studio/issues
@@ -17637,8 +17637,41 @@ function sanitizeMermaidSVG(source, renderID) {
   return new XMLSerializer().serializeToString(svg);
 }
 
+function createMermaidHeightChoices() {
+  const choices = new Map();
+  return {
+    reconcile(blocks) {
+      const occurrences = new Map();
+      const present = new Set();
+      const keys = blocks.map((source, index) => {
+        if (index >= MERMAID_STUDIO_LIMITS.blocks) return null;
+        try { validateMermaidSource(source); } catch (_) { return null; }
+        const occurrence = occurrences.get(source) || 0;
+        occurrences.set(source, occurrence + 1);
+        const key = JSON.stringify([source, occurrence]);
+        present.add(key);
+        return key;
+      });
+      for (const key of choices.keys()) if (!present.has(key)) choices.delete(key);
+      for (const key of present) if (!choices.has(key)) choices.set(key, false);
+      return keys;
+    },
+    isFixed(key) { return choices.get(key) === true; },
+    toggle(key) {
+      if (!choices.has(key)) return null;
+      const fixed = !choices.get(key);
+      choices.set(key, fixed);
+      return fixed;
+    },
+    clear() { choices.clear(); },
+    get size() { return choices.size; }
+  };
+}
+
 function createMermaidPreviewController(host, preview) {
   const renderer = createMermaidRenderer(host);
+  const heightChoices = createMermaidHeightChoices();
+  let surfaceSequence = 0;
   let generation = 0;
   let disposed = false;
   const blobs = new Set();
@@ -17653,23 +17686,51 @@ function createMermaidPreviewController(host, preview) {
   }
   return {
     invalidate,
-    dispose() { disposed = true; invalidate(); renderer.dispose(); },
+    dispose() { disposed = true; heightChoices.clear(); invalidate(); renderer.dispose(); },
     async render(blocks, theme, active) {
       const current = generation;
       const live = () => !disposed && current === generation && host.isConnected && active();
+      if (!live()) return;
+      const heightKeys = heightChoices.reconcile(blocks);
       const jobs = [];
       for (let index = 0; index < blocks.length; index++) {
         const card = preview.querySelector('[data-mermaid-index="' + index + '"]');
         if (!card) continue;
+        const key = heightKeys[index];
+        const heading = document.createElement('div');
+        heading.className = 'lts-mermaid-heading';
         const label = document.createElement('div');
         label.className = 'lts-mermaid-label';
         label.textContent = 'MERMAID';
+        const heightButton = document.createElement('button');
+        heightButton.type = 'button';
+        heightButton.className = 'lts-button lts-mermaid-height';
+        heading.append(label, heightButton);
         const status = document.createElement('p');
         status.className = 'lts-mermaid-status';
         status.setAttribute('role', 'status');
         status.textContent = '等待渲染…';
         const surface = document.createElement('div');
         surface.className = 'lts-mermaid-surface';
+        surface.id = 'lts-mermaid-surface-' + (++surfaceSequence);
+        heightButton.setAttribute('aria-controls', surface.id);
+        const applyHeight = fixed => {
+          surface.dataset.height = fixed ? 'fixed' : 'auto';
+          surface.scrollTop = 0;
+          heightButton.textContent = fixed ? '自动撑开' : '固定高度';
+          heightButton.setAttribute('aria-pressed', String(fixed));
+          const description = fixed
+            ? '自动撑开：取消 640px 高度上限；当前为固定高度。'
+            : '固定高度：图表最多显示 640px 并在图内滚动；当前自动撑开。';
+          heightButton.title = description;
+          heightButton.setAttribute('aria-label', description);
+        };
+        applyHeight(heightChoices.isFixed(key));
+        heightButton.addEventListener('click', () => {
+          if (heightButton.disabled || !live() || !card.isConnected || !preview.contains(card)) return;
+          const fixed = heightChoices.toggle(key);
+          if (fixed !== null) applyHeight(fixed);
+        });
         const details = document.createElement('details');
         details.className = 'lts-mermaid-source';
         const summary = document.createElement('summary');
@@ -17679,9 +17740,16 @@ function createMermaidPreviewController(host, preview) {
         code.textContent = blocks[index];
         pre.append(code);
         details.append(summary, pre);
-        card.replaceChildren(label, status, surface, details);
+        card.replaceChildren(heading, status, surface, details);
         card.dataset.state = 'pending';
-        const fail = message => { card.dataset.state = 'error'; status.textContent = message; details.open = true; };
+        const fail = message => {
+          card.dataset.state = 'error';
+          status.textContent = message;
+          details.open = true;
+          heightButton.disabled = true;
+          heightButton.title = '图表未渲染，暂不可切换高度；错误提示和源码不会折叠。';
+          heightButton.setAttribute('aria-label', heightButton.textContent + '不可用：' + heightButton.title);
+        };
         if (index >= MERMAID_STUDIO_LIMITS.blocks) { fail('每次预览最多渲染 12 个图表；源码仍可编辑、复制和下载。'); continue; }
         try { validateMermaidSource(blocks[index]); } catch (error) { fail(error.message); continue; }
         jobs.push({ card, status, surface, fail, source: blocks[index] });
@@ -17915,6 +17983,7 @@ function startLocalTextStudio() {
 #local-text-studio .lts-preview{box-sizing:border-box;min-width:0;min-height:0;overflow:auto;padding:24px 28px;background:var(--card);line-height:1.85;overflow-wrap:anywhere}#local-text-studio .lts-panes[data-layout=split] .lts-preview{border-left:1px solid var(--line)}#local-text-studio .lts-preview>:first-child{margin-top:0}#local-text-studio .lts-preview h1,#local-text-studio .lts-preview h2,#local-text-studio .lts-preview h3{font-family:Bahnschrift,'Microsoft YaHei',sans-serif;line-height:1.4;margin:1.3em 0 .5em}#local-text-studio .lts-preview h1{font-size:27px}#local-text-studio .lts-preview h2{font-size:22px;border-bottom:1px solid var(--line);padding-bottom:7px}#local-text-studio .lts-preview h3{font-size:18px}#local-text-studio .lts-preview pre{margin:14px 0;padding:15px;background:var(--bg);border:1px solid var(--line);border-radius:8px;overflow:auto;white-space:pre}#local-text-studio .lts-preview code{font:12px/1.7 Consolas,'Microsoft YaHei',monospace;background:var(--bg);padding:2px 4px;border-radius:3px}#local-text-studio .lts-preview pre code{padding:0;background:none}#local-text-studio .lts-preview a{color:var(--blue);text-decoration:underline;text-underline-offset:3px}#local-text-studio .lts-preview blockquote{margin:14px 0;border-left:3px solid var(--blue);padding:2px 16px;color:var(--muted)}#local-text-studio .lts-preview table{border-collapse:collapse;display:block;overflow:auto;font-size:12px}#local-text-studio .lts-preview td,#local-text-studio .lts-preview th{border:1px solid var(--line);padding:7px 11px}#local-text-studio .lts-preview hr{border:0;border-top:1px solid var(--line);margin:22px 0}#local-text-studio .lts-image-label{display:inline-block;border:1px dashed var(--line);border-radius:5px;padding:3px 8px;color:var(--muted);font-size:12px}
 #local-text-studio .lts-status{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 14px;padding:7px 24px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);flex-shrink:0}#local-text-studio .lts-dirty[data-dirty=true]{color:var(--blue);font-weight:600}#local-text-studio .lts-cursor{font-family:Consolas,monospace}#local-text-studio .lts-notice{position:absolute;bottom:43px;left:50%;transform:translateX(-50%);max-width:calc(100% - 40px);box-sizing:border-box;background:var(--text);color:var(--card);border-radius:8px;padding:10px 16px;box-shadow:0 6px 24px #12223a20;font-size:12px;z-index:6;overflow-wrap:anywhere}#local-text-studio .lts-notice:empty{display:none}#local-text-studio[data-original=true]{inset:auto 18px 18px auto;height:auto;background:transparent;z-index:2147483646}#local-text-studio .lts-restore{box-shadow:0 4px 24px #10244330;border-color:var(--blue)}
 #local-text-studio .lts-mermaid-card{border:1px solid var(--line);border-radius:9px;padding:14px;margin:16px 0;background:var(--surface);min-width:0}#local-text-studio .lts-mermaid-label{font:600 10px Bahnschrift,Consolas,monospace;letter-spacing:1.4px;color:var(--blue)}#local-text-studio .lts-mermaid-status{margin:5px 0 10px;font-size:11px;color:var(--muted)}#local-text-studio .lts-mermaid-card[data-state=error] .lts-mermaid-status{color:var(--tag)}#local-text-studio .lts-mermaid-surface{overflow:visible;min-width:0}#local-text-studio .lts-mermaid-image{display:block;max-width:100%;height:auto;margin:0 auto}#local-text-studio .lts-mermaid-source{font-size:11px;color:var(--muted);margin-top:12px}#local-text-studio .lts-mermaid-source summary{cursor:pointer;padding:3px 0}#local-text-studio .lts-mermaid-source summary:focus-visible{outline:3px solid var(--blue);outline-offset:2px}#local-text-studio .lts-mermaid-source pre{color:var(--text)}
+#local-text-studio .lts-mermaid-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}#local-text-studio .lts-mermaid-height{font-size:11px;min-height:28px;padding:4px 8px}#local-text-studio .lts-mermaid-surface[data-height="fixed"]{max-height:640px;overflow:auto}
 @media(max-width:1000px){#local-text-studio .lts-search{max-width:none;flex-basis:45%}#local-text-studio .lts-actions{margin-left:0}#local-text-studio .lts-local{display:none}}
 @media(max-width:700px){#local-text-studio .lts-header{height:52px;padding:0 12px;gap:7px}#local-text-studio .lts-brand{font-size:11px;letter-spacing:1px}#local-text-studio .lts-header-actions{gap:4px}#local-text-studio .lts-button{font-size:11px;padding:6px 8px;min-height:32px}#local-text-studio .lts-heading{padding:12px;gap:7px;align-items:flex-start}#local-text-studio .lts-path{font-size:12px;gap:2px}#local-text-studio .lts-path [aria-current=page]{font-size:18px;padding:3px 7px}#local-text-studio .lts-parent{margin-top:3px}#local-text-studio .lts-toolbar{padding:8px 12px;gap:6px}#local-text-studio .lts-search{flex-basis:100%;width:100%}#local-text-studio .lts-matches{font-size:10px;min-width:48px}#local-text-studio .lts-mode{font-size:11px;max-width:150px;flex:1}#local-text-studio .lts-actions{gap:4px;flex-wrap:wrap}#local-text-studio .lts-views{gap:3px;padding-left:5px}#local-text-studio .lts-panes[data-layout=split]{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr)}#local-text-studio .lts-panes[data-layout=split] .lts-preview{border-left:0;border-top:1px solid var(--line)}#local-text-studio .lts-preview{padding:18px}#local-text-studio .lts-status{padding:7px 12px;font-size:10px}#local-text-studio .lts-encoding{display:none}#local-text-studio .CodeMirror{font-size:12px}}
 @media(prefers-reduced-motion:reduce){#local-text-studio *,#local-text-studio *:before,#local-text-studio *:after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
