@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Directory Studio - 本地目录与文本编辑
 // @namespace    local.directory-studio
-// @version      1.3.2
+// @version      1.3.3
 // @description  本地目录浏览、离线代码编辑与 Markdown/Mermaid 预览；不上传、不自动覆盖原文件。
 // @homepageURL  https://github.com/wuyixiang9/directory-studio
 // @supportURL   https://github.com/wuyixiang9/directory-studio/issues
@@ -18809,6 +18809,16 @@ function formatLocalJSON(source) {
       const number = Number(value);
       return Number.isFinite(number) && number >= 0 ? number : null;
     }
+    const modifiedTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    });
+    function formatModifiedTime(seconds, fallback) {
+      if (seconds === null || !Number.isFinite(seconds) || (seconds === 0 && !fallback)) return fallback || '-';
+      // Chrome stores directory modification times as Unix seconds.
+      const date = new Date(seconds * 1000);
+      return Number.isNaN(date.getTime()) ? fallback || '-' : modifiedTimeFormatter.format(date);
+    }
     function readEntries() {
       const items = [];
       for (const row of native.body.rows) {
@@ -18826,7 +18836,7 @@ function formatLocalJSON(source) {
         const sizeText = row.cells[1] ? row.cells[1].textContent.trim() : '';
         const dateText = row.cells[2] ? row.cells[2].textContent.trim() : '';
         items.push({ name, href: url.href, isDirectory, size, modified,
-          sizeText: isDirectory ? '-' : sizeText || '-', dateText: dateText || '-',
+          sizeText: isDirectory ? '-' : sizeText || '-', dateText: formatModifiedTime(modified, dateText),
           index: items.length });
       }
       entries = items;
