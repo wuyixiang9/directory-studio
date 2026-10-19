@@ -1,4 +1,4 @@
-function startLocalTextStudio() {
+function startLoadedTextStudio(dependencies) {
   'use strict';
   const MODES = {
     plain: ['纯文本', null], markdown: ['Markdown', 'text/x-markdown'],
@@ -58,20 +58,7 @@ function startLocalTextStudio() {
     delete document[TOKEN];
   }
   function nativeText() {
-    const body = document.body;
-    if (!body || body.id || body.className.trim() || body.isContentEditable) return null;
-    const elements = [...body.children];
-    const pres = elements.filter(node => node.tagName === 'PRE');
-    if (pres.length !== 1 || pres[0].children.length || pres[0].isContentEditable) return null;
-    // Chromium's JSON formatter lives in an empty host with a user-agent shadow root.
-    const formatters = mime === 'application/json' ? elements.filter(node =>
-      node.tagName === 'DIV' && node.className === 'json-formatter-container' &&
-      !node.id && node.childNodes.length === 0 && node.shadowRoot === null && !node.isContentEditable) : [];
-    if (formatters.length > 1) return null;
-    const nativeNodes = [pres[0], ...formatters];
-    if (elements.some(node => !nativeNodes.includes(node) && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE')) return null;
-    if ([...body.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim())) return null;
-    return { pre: pres[0], nativeNodes };
+    return environment.nativeText(document, mime);
   }
   function attempt() {
     if (finished || document.readyState === 'loading') return;
@@ -131,7 +118,7 @@ function startLocalTextStudio() {
       documentStyle.remove();
     };
     try {
-      const { CodeMirror, MarkdownIt } = createTextStudioLibraries();
+      const { CodeMirror, MarkdownIt, createMermaidPreviewController, createStudioMarkdownRenderer, scheduleStudioDiagramRender } = dependencies;
       const memory = Object.create(null);
       const read = (key, fallback) => {
         try { if (typeof GM_getValue === 'function') return GM_getValue('directory-studio.' + key, fallback); } catch (_) { /* Optional storage. */ }
@@ -175,7 +162,7 @@ function startLocalTextStudio() {
         node.href = target;
         return node;
       };
-      style.textContent = TEXT_STUDIO_CODEMIRROR_CSS + `
+      style.textContent = dependencies.css + `
 #local-text-studio{--bg:#edf3fb;--surface:#fbfdff;--card:#fff;--text:#182b49;--muted:#6c7e97;--line:#dbe5f1;--blue:#2563eb;--wash:#eaf1ff;--keyword:#3153bb;--string:#16776e;--number:#9b6517;--comment:#75849b;--tag:#a13e70;position:fixed;inset:0;z-index:1;height:100vh;height:100dvh;color:var(--text);background:radial-gradient(ellipse at 90% 0%,#8db7fa24,transparent 48%),var(--bg);font:13px/1.5 'Segoe UI Variable','Microsoft YaHei','Segoe UI',sans-serif;color-scheme:light;isolation:isolate}
 #local-text-studio[data-theme=dark]{--bg:#111c2e;--surface:#17253a;--card:#1c2d44;--text:#e0eafb;--muted:#9bb0cc;--line:#30435d;--blue:#8cb4ff;--wash:#253b5d;--keyword:#9ebdff;--string:#83cfbb;--number:#e5b778;--comment:#95a5be;--tag:#e0a1c7;color-scheme:dark}
 #local-text-studio .lts-app{height:100%;display:flex;flex-direction:column;min-height:0}#local-text-studio .lts-header,#local-text-studio .lts-heading,#local-text-studio .lts-toolbar,#local-text-studio .lts-status{box-sizing:border-box}#local-text-studio button,#local-text-studio input,#local-text-studio select{font:inherit}#local-text-studio a{color:inherit;text-decoration:none}#local-text-studio button{cursor:pointer;color:inherit}#local-text-studio button:disabled{opacity:.4;cursor:default}#local-text-studio button:focus-visible,#local-text-studio a:focus-visible,#local-text-studio input:focus-visible,#local-text-studio select:focus-visible{outline:3px solid var(--blue);outline-offset:2px}#local-text-studio [hidden]{display:none!important}
@@ -313,35 +300,14 @@ function startLocalTextStudio() {
       cm.getInputField().spellcheck = false;
       cm.clearHistory();
       const baseline = cm.getValue();
-      const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false, maxNesting: 40 });
+      const markdown = createStudioMarkdownRenderer(MarkdownIt, url);
       const mermaidPreview = createMermaidPreviewController(host, preview);
-      cleanup.push(() => mermaidPreview.dispose());
-      let mermaidBlocks = [];
-      const defaultFence = markdown.renderer.rules.fence;
-      markdown.renderer.rules.fence = (tokens, index, options, environment, renderer) => {
-        if (tokens[index].info.trim().split(/\s+/)[0].toLowerCase() !== 'mermaid') return defaultFence(tokens, index, options, environment, renderer);
-        const block = mermaidBlocks.push(tokens[index].content) - 1;
-        return '<section class="lts-mermaid-card" data-mermaid-index="' + block + '" aria-label="Mermaid 图表"></section>';
-      };
-      const safeLink = value => {
-        try { return ['file:', 'http:', 'https:', 'mailto:'].includes(new URL(value, url).protocol); } catch (_) { return false; }
-      };
-      markdown.validateLink = safeLink;
-      markdown.renderer.rules.image = (tokens, index) => '<span class="lts-image-label">' +
-        markdown.utils.escapeHtml('[图片：' + (tokens[index].content || '未命名') + ' · 未加载]') + '</span>';
-      markdown.renderer.rules.link_open = (tokens, index, options, environment, renderer) => {
-        const token = tokens[index];
-        const href = token.attrGet('href') || '';
-        if (!safeLink(href)) {
-          token.attrSet('href', '#');
-        } else {
-          const target = new URL(href, url);
-          token.attrSet('href', target.href);
-          if (target.protocol === 'http:' || target.protocol === 'https:') token.attrSet('target', '_blank');
-        }
-        token.attrSet('rel', 'noopener noreferrer');
-        return renderer.renderToken(tokens, index, options);
-      };
+      let previewGeneration = 0;
+      let cancelDiagrams = () => {};
+      function invalidatePreview() {
+        previewGeneration++; cancelDiagrams(); mermaidPreview.invalidate();
+      }
+      cleanup.push(() => { cancelDiagrams(); mermaidPreview.dispose(); });
       function announce(message) {
         clearTimeout(noticeTimer);
         notice.textContent = message;
@@ -371,7 +337,7 @@ function startLocalTextStudio() {
       }
       function renderPreview() {
         clearTimeout(previewTimer);
-        mermaidPreview.invalidate();
+        invalidatePreview();
         if (original || activeMode !== 'markdown' || markdownView === 'edit') return;
         const text = cm.getValue();
         if (text.length > 512 * 1024 || new Blob([text]).size > 512 * 1024) {
@@ -379,10 +345,15 @@ function startLocalTextStudio() {
           return;
         }
         try {
-          mermaidBlocks = [];
-          // Only markdown-it's escaped, resource-free renderer may produce preview HTML.
-          preview.innerHTML = markdown.render(text);
-          mermaidPreview.render(mermaidBlocks, theme, () => !original && activeMode === 'markdown' && markdownView !== 'edit').catch(() => {});
+          const rendered = markdown.render(text);
+          // Only the shared escaped, resource-free renderer may produce preview HTML.
+          preview.innerHTML = rendered.html;
+          const generation = previewGeneration;
+          if (rendered.blocks.length) cancelDiagrams = scheduleStudioDiagramRender(() => {
+            if (generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit') {
+              mermaidPreview.render(rendered.blocks, theme, () => generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit').catch(() => {});
+            }
+          });
         } catch (_) { preview.textContent = '预览失败。原始编辑内容未改动，可继续编辑或下载副本。'; }
       }
       function applyLayout() {
@@ -447,7 +418,7 @@ function startLocalTextStudio() {
       }
       function setOriginal(value) {
         original = value;
-        if (value) mermaidPreview.invalidate();
+        if (value) invalidatePreview();
         host.dataset.original = String(value);
         app.hidden = value;
         restore.hidden = !value;
@@ -514,7 +485,7 @@ function startLocalTextStudio() {
       restore.addEventListener('click', () => setOriginal(false));
       cm.on('change', () => {
         updateStatus();
-        mermaidPreview.invalidate();
+        invalidatePreview();
         clearTimeout(searchTimer);
         searchTimer = setTimeout(countMatches, 160);
         clearTimeout(previewTimer);
@@ -539,7 +510,7 @@ function startLocalTextStudio() {
         }
       }, true);
       const onPageHide = () => {
-        mermaidPreview.invalidate();
+        invalidatePreview();
         clearTimeout(noticeTimer);
         clearTimeout(previewTimer);
         clearTimeout(searchTimer);

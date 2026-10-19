@@ -30,7 +30,7 @@ test('missing or invalid timestamps preserve native text instead of inventing a 
   assert.notEqual(format(0, 'epoch'), 'epoch');
 });
 
-test('directory row parsing uses formatted dates without changing sort timestamps', () => {
+test('directory parsing keeps raw timestamps and defers display formatting to visible rows', () => {
   const modified = secondsAt(2026, 10, 19, 14, 30, 5);
   const cell = (value, textContent) => ({ getAttribute: () => value, textContent });
   const row = (name, timestamp, text, directory = false) => ({
@@ -52,9 +52,11 @@ test('directory row parsing uses formatted dates without changing sort timestamp
   new vm.Script('let entries;\n' + source.slice(start, entriesEnd)).runInContext(rowsContext);
   rowsContext.readEntries();
   const entries = vm.runInContext('entries', rowsContext);
-  assert.equal(entries[0].dateText, '2026/10/19 14:30:05');
+  assert.equal(entries[0].dateText, '10/19/26, 2:30 PM');
+  assert.equal(rowsContext.formatModifiedTime(entries[0].modified, entries[0].dateText), '2026/10/19 14:30:05');
   assert.equal(entries[0].modified, modified);
-  assert.equal(entries[1].dateText, '-');
+  assert.equal(entries[1].dateText, '');
+  assert.equal(rowsContext.formatModifiedTime(entries[1].modified, entries[1].dateText), '-');
   assert.equal(entries[1].isDirectory, true);
   assert.equal(renders, 1);
 });
