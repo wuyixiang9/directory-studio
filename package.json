@@ -1,6 +1,6 @@
 {
   "name": "directory-studio-userscript",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Offline Chrome local-directory and text-editor userscript",
   "type": "module",

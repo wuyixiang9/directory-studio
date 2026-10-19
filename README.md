@@ -1,6 +1,6 @@
 # Directory Studio
 
-把 Chrome 的本地目录和原生文本页变成蓝灰色文件浏览器与离线编辑器。轻量 userscript 负责目录交互；CodeMirror、Markdown 和 Mermaid 资源由 Tampermonkey 在安装或更新时校验并缓存，使用时才按需执行，日常浏览不需要本地服务。
+把 Chrome 的本地目录和原生文本页变成蓝灰色文件浏览器、图片查看器与离线编辑器。轻量 userscript 负责目录交互；CodeMirror、Markdown 和 Mermaid 资源由 Tampermonkey 在安装或更新时校验并缓存，使用时才按需执行，日常浏览不需要本地服务。
 
 ## 安装
 
@@ -17,15 +17,25 @@
 - 可点击的完整路径面包屑、磁盘或共享根目录、上一级目录、复制路径。
 - 自然数字名称排序、修改时间/大小排序，文件夹始终优先；保留当前目录名称搜索、全部/文件/文件夹切换和列表/网格，每页最多 160 项，不缩减搜索与排序的数据集。
 - 浅色/深色主题，紧凑布局；可切回原始目录。
-- 文件链接保留原生行为，支持 Ctrl-click、中键和上下文菜单；不递归扫描子目录。
+- 图片普通点击默认在当前页查看；其他文件保持原生打开。保留 Ctrl-click、中键和上下文菜单，不递归扫描子目录。
 - 收藏常用目录：单行文件夹链接，当前目录轻量高亮；悬停、键盘聚焦或触摸时可用的更多菜单支持重命名标签、上移、下移和取消收藏。改标签不会改目录名，链接保留原生打开行为。
-- 支持返回历史项时恢复搜索、范围切换、排序、视图、分页、滚动锚点与焦点；不恢复已移除的目录快速预览或类型/时间条件。本版本不提供目录侧栏预览和增强类型/时间筛选，完整 Markdown 编辑与预览在打开文件后使用。
+- 支持返回历史项时恢复搜索、范围切换、排序、视图、分页、滚动锚点与焦点；不恢复已弃用的文本侧栏预览或类型/时间条件。完整 Markdown 编辑与预览在打开文件后使用。
 
 快捷键：`/` 聚焦目录搜索；`Escape` 清空或离开搜索；非输入控件内 `Alt+↑` 返回上级目录。
 
+### 图片查看
+
+- 支持 JPG/JPEG、PNG、GIF、WebP、AVIF、BMP、ICO 和 SVG 扩展名，实际能否显示由浏览器解码能力决定；SVG 仅作为图片嵌入，不作为可执行文档。独立打开原图仍由浏览器处理。
+- 当前页弹窗保留目录现场。上一张/下一张按打开时的完整筛选与排序结果导航，跨目录列表分页但不进入子目录；侧栏显示当前图片前后各最多 10 张，首尾不循环。
+- 提供适应窗口、100%、缩小/放大、放大后拖动、左右 90 度旋转和缩略图开关。每张图片在本次查看期间记住旋转角度，切图重新适应窗口，不修改原文件。
+- 底部前三组按钮整体居中，文件操作在右侧，窄窗口居中换行；无额外可见小标题。复制菜单紧贴复制按钮，靠边时仅作必要避让。
+- `←` / `→` 切图，`R` 向右旋转，`Shift+R` 向左旋转；`Esc` 先收起已打开的复制菜单，再关闭查看器并回到当前图片条目。
+- 路径、文件名与图片是三个独立复制操作。图片复制使用原图像素，不包含查看时的旋转，限制为 16 MP 且单边不超过 16384 像素；已验证的 Chrome `file://` 环境会阻止画布导出，因此直接复制图片不可用并明确报错，不会回退复制其他内容。可用“打开原图”后的浏览器右键菜单复制图片。
+- 目录首屏不创建查看器或读取图片。点击后才加载当前图与可见缩略图，缩略图最多两路并发；损坏图片可继续切换，过期加载不能覆盖新图片。关闭时清理图像、监听与观察器，不据此承诺整体性能改善。
+
 ## 文本与代码
 
-支持原生文本页中的 TXT、LOG、Markdown、JSON/JSONC、JavaScript/TypeScript/JSX/TSX、Python、Rust、Go、C/C++、Java、C#、CSS/SCSS、YAML/TOML/INI、Shell、PowerShell、SQL 等。BAT/CMD 等没有专用 lexer 的格式以纯文本显示。XML 只有被 Chrome 作为普通文本打开时可用；HTML、SVG/XML viewer、PDF、图片和未知二进制不会被接管。
+支持原生文本页中的 TXT、LOG、Markdown、JSON/JSONC、JavaScript/TypeScript/JSX/TSX、Python、Rust、Go、C/C++、Java、C#、CSS/SCSS、YAML/TOML/INI、Shell、PowerShell、SQL 等。BAT/CMD 等没有专用 lexer 的格式以纯文本显示。XML 只有被 Chrome 作为普通文本打开时可用；HTML、SVG/XML viewer、PDF、独立图片页和未知二进制不会被文本编辑器接管。
 
 - CodeMirror 编辑器提供行号、语法高亮、缩进、括号匹配、撤销/重做与自动换行。
 - `Ctrl+F` / `Cmd+F` 查找字面文本；Enter 下一处、Shift+Enter 上一处、Escape 返回编辑器。
@@ -72,7 +82,7 @@ sequenceDiagram
 - Markdown 原始 HTML 不启用；外部图片只显示“未加载”标签，链接仅在用户点击后导航。
 - Mermaid 完整依赖随版本分发并在安装或更新时缓存，仅在实际显示 Mermaid 图表时按需加载并启动隔离 iframe；正文先显示，再调度图表。iframe 只允许脚本，不允许同源权限；CSP 拒绝网络、图片、字体、媒体、子 frame、对象、表单与外部脚本。
 - Mermaid 使用 strict 配置，禁止图内配置指令和 frontmatter 配置，不启用图表点击回调。图片、图标包、外部字体、HTML 标签与交互链接不受支持。
-- 输出 SVG 先清理活动元素、事件、外部资源与不确定 CSS，再转为本地 Blob 图像显示；不会把图表的 SVG 样式直接插入编辑器页面。唯一自动加载的图像是此受控的本地生成图像，普通 Markdown 图片仍不加载。
+- 输出 SVG 先清理活动元素、事件、外部资源与不确定 CSS，再转为本地 Blob 图像显示；不会把图表的 SVG 样式直接插入编辑器页面。Markdown 预览中唯一自动加载的图像是此受控的本地生成图像，普通 Markdown 图片仍不加载；目录图片查看器仅在用户选择后加载本地图片。
 - 编辑、主题、视图或页面变化会废弃过时渲染，撤销相关 Blob URL；首次图表显示需要解析缓存的库，可能有短暂等待。轻量入口或更小文件不等于整体更快，不承诺浏览器首帧或所有操作的性能改善。
 - 此工具不是操作系统沙箱；请勿把浏览器扩展当作处理不可信文件的完整安全隔离方案。
 
@@ -85,9 +95,9 @@ node build.mjs
 node --test
 ```
 
-`node build.mjs` 默认生成正式的 `directory-studio.user.js`、仅含元数据的 `directory-studio.meta.js`，以及 `resources/1.4.0/` 下的 `editor.js`、`editor.css`、`markdown.js`、`mermaid.js`。正式入口通过 GitHub raw 的版本化路径引用资源，并保留 SHA-256 SRI；四个资源必须与两个入口一起提交。不要直接编辑生成文件，修改相应 `.src.js` 后重新生成。依赖来源、版本和 tarball 完整性见 `vendor-manifest.json`，上游原件和许可证见 `vendor/`。
+`node build.mjs` 默认生成正式的 `directory-studio.user.js`、仅含元数据的 `directory-studio.meta.js`，以及 `resources/1.5.0/` 下的 `editor.js`、`editor.css`、`markdown.js`、`mermaid.js`。正式入口通过 GitHub raw 的版本化路径引用资源，并保留 SHA-256 SRI；四个资源必须与两个入口一起提交。不要直接编辑生成文件，修改相应 `.src.js` 后重新生成。依赖来源、版本和 tarball 完整性见 `vendor-manifest.json`，上游原件和许可证见 `vendor/`。
 
-Node 测试覆盖收藏与跨页状态、菜单键盘/清理、JSON 文本格式化、正式/本地构建隔离、元数据与资源 SRI 一致性、确定性及 Mermaid 安全约束；不能替代实际 Tampermonkey/Chrome 的安装、离线资源、CSP、编辑行为和异步竞态验证。发布前的本地或拦截测试不代表实际 GitHub 安装成功，公开路径在推送后仍需逐项回读验证。
+Node 测试覆盖图片序列与分组布局、菜单定位/键盘/清理、收藏与跨页状态、JSON 文本格式化、正式/本地构建隔离、元数据与资源 SRI 一致性、确定性及 Mermaid 安全约束；不能替代实际 Tampermonkey/Chrome 的安装、离线资源、CSP、编辑行为和异步竞态验证。发布前的本地或拦截测试不代表实际 GitHub 安装成功，公开路径在推送后仍需逐项回读验证。
 
 更新正式版本时同步调整源码的 `@version` 和 `package.json`，维护 `CHANGELOG.md`，重新生成并验证两个入口与四个资源。已发布的资源目录应保留；后续改动使用新版本目录，避免破坏旧版本的 SRI。只有在检查通过并获授权后才提交、推送；创建 tag 或 Release 是另行操作。
 
@@ -96,7 +106,7 @@ Node 测试覆盖收藏与跨页状态、菜单键盘/清理、JSON 文本格式
 本地构建必须显式选择 `--local`，指定未使用过的 `<正式版本>-local.N`；不会覆盖正式入口或任何已有候选目录，也不会自动启动服务。以下为 Git Bash 示例，使用独立产物目录和端口，不影响已有本地服务：
 
 ```sh
-DIRECTORY_STUDIO_LOCAL_VERSION=1.4.0-local.4 DIRECTORY_STUDIO_INSTALL_PORT=43819 DIRECTORY_STUDIO_ARTIFACT_ROOT=../artifacts/chrome-directory-studio/release-local node build.mjs --local
+DIRECTORY_STUDIO_LOCAL_VERSION=1.5.0-local.1 DIRECTORY_STUDIO_INSTALL_PORT=43819 DIRECTORY_STUDIO_ARTIFACT_ROOT=../artifacts/chrome-directory-studio/release-local node build.mjs --local
 DIRECTORY_STUDIO_ARTIFACT_ROOT=../artifacts/chrome-directory-studio/release-local node serve-install.mjs
 ```
 

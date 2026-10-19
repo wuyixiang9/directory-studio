@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Directory Studio - 本地目录与文本编辑
 // @namespace    local.directory-studio
-// @version      1.4.0
-// @description  本地目录浏览、离线代码编辑与 Markdown/Mermaid 预览；不上传、不自动覆盖原文件。
+// @version      1.5.0
+// @description  本地目录浏览、图片查看、离线代码编辑与 Markdown/Mermaid 预览；不上传、不自动覆盖原文件。
 // @homepageURL  https://github.com/wuyixiang9/directory-studio
 // @supportURL   https://github.com/wuyixiang9/directory-studio/issues
 // @downloadURL  https://raw.githubusercontent.com/wuyixiang9/directory-studio/main/directory-studio.user.js
@@ -203,6 +203,22 @@
       ? '\\\\' + currentURL.hostname + decode(currentURL.pathname).replaceAll('/', '\\')
       : drive ? decode(currentURL.pathname).slice(1).replaceAll('/', '\\') : decode(currentURL.pathname);
     let entries = [];
+    let visibleEntries = [];
+    let imageViewer = null;
+    function restoreImageFocus(href) {
+      if (state.original || !host.isConnected) return;
+      const index = visibleEntries.findIndex(item => item.href === href);
+      if (index < 0) { search.focus({ preventScroll: true }); return; }
+      const page = Math.floor(index / 160);
+      const changedPage = state.page !== page;
+      if (changedPage) { state.page = page; render(); }
+      const anchor = [...list.querySelectorAll('a[data-entry]')].find(node => node.dataset.entry === href);
+      if (anchor) {
+        anchor.focus({ preventScroll: true });
+        if (changedPage) anchor.scrollIntoView({ block: 'nearest' });
+      }
+    }
+    guard.cleanup.push(() => { if (imageViewer) imageViewer.dispose(); });
     let noticeTimer;
     const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
 
@@ -493,6 +509,7 @@
     }
     function setOriginal(original) {
       state.original = original;
+      if (imageViewer) imageViewer.close(false);
       favoritesMenu.close();
       app.hidden = original;
       restore.hidden = !original;
@@ -572,6 +589,8 @@
     function render() {
       const tokens = state.query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
       const visible = entries.filter(item => directoryStudioMatches(item, state, tokens)).sort(compare);
+      visibleEntries = visible;
+      const imageSequence = directoryStudioImageSequence(visible);
       const pageSize = 160;
       const pages = Math.max(1, Math.ceil(visible.length / pageSize));
       state.page = Math.max(0, Math.min(pages - 1, state.page));
@@ -580,7 +599,13 @@
         const li = element('li');
         const entry = link('', item.href, 'entry' + (item.isDirectory ? ' isdir' : ''));
         entry.dataset.entry = item.href;
-        entry.addEventListener('click', persistContext);
+        entry.addEventListener('click', event => {
+          persistContext();
+          if (!directoryStudioIsImage(item) || !directoryStudioImageClick(event)) return;
+          if (!imageViewer) imageViewer = directoryStudioCreateImageViewer({ root: shadow, restoreFocus: restoreImageFocus });
+          // Freeze the full filtered/sorted sequence for this viewing session.
+          if (imageViewer.open(imageSequence, item.href)) { favoritesMenu.close(); event.preventDefault(); }
+        });
         entry.addEventListener('auxclick', persistContext);
         const date = formatModifiedTime(item.modified, item.dateText);
         entry.title = item.name + '\n大小: ' + item.sizeText + '\n修改时间: ' + date;
@@ -660,7 +685,7 @@
       } catch (_) { announce('复制失败。可在页面底部选择并复制路径。'); }
     });
     const onKeydown = event => {
-      if (state.original || event.defaultPrevented || event.isComposing) return;
+      if (state.original || (imageViewer && imageViewer.isOpen) || event.defaultPrevented || event.isComposing) return;
       if (!host.isConnected) return;
       const target = event.composedPath()[0];
       const editable = target instanceof Element && (target.matches('input,textarea,select') || target.isContentEditable);
@@ -728,6 +753,7 @@
     guard.cleanup.push(() => clearTimeout(observationTimer));
     window.addEventListener('pagehide', event => {
       favoritesMenu.close();
+      if (imageViewer) imageViewer.close(false);
       cancelListReady();
       if (!event.persisted) favoritesStore.dispose();
       persistContext(); clearTimeout(contextTimer); clearTimeout(observationTimer); observer.disconnect(); clearTimeout(noticeTimer);

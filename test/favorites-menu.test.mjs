@@ -175,6 +175,6 @@ test('viewport placement is clamped and scroll/resize/original/pagehide cleanup 
   assert.ok(position.left >= 8 && position.left + 184 <= 792); assert.ok(position.top >= 8 && position.top + 150 <= 592);
   f.render();
   for (const type of ['scroll', 'resize']) { f.more(0).click(); f.window.emit(type, f.event()); assert.equal(f.menu(), null); assert.equal(f.listenerCount(), 0); }
-  assert.match(directory, /function setOriginal\(original\)\s*\{\s*state\.original = original;\s*favoritesMenu\.close\(\)/);
+  assert.match(directory, /function setOriginal\(original\)\s*\{\s*state\.original = original;\s*if \(imageViewer\) imageViewer\.close\(false\);\s*favoritesMenu\.close\(\)/);
   assert.match(directory, /addEventListener\('pagehide', event => \{\s*favoritesMenu\.close\(\)/);
 });

@@ -6,8 +6,8 @@ import vm from 'node:vm';
 const directory = await readFile(new URL('../directory-studio.src.js', import.meta.url), 'utf8');
 const build = await readFile(new URL('../build.mjs', import.meta.url), 'utf8');
 
-test('directory shell has no quick preview or enhanced type/time filter implementation', () => {
-  assert.doesNotMatch(directory, /preview|capture|advanced-filters|directoryStudioDateBounds|directoryStudioFamily/i);
+test('directory shell has no text quick preview or enhanced type/time filter implementation', () => {
+  assert.doesNotMatch(directory, /createStudioReadingPreview|preview-transport|advanced-filters|directoryStudioDateBounds|directoryStudioFamily/i);
   assert.doesNotMatch(directory, /文件快速预览|文件类别与修改日期|起始日期|自定义日期/);
   assert.doesNotMatch(directory, /state\.(?:family|period|from|to|selected)/);
   assert.doesNotMatch(build, /preview-transport|createStudioReadingPreview/);
