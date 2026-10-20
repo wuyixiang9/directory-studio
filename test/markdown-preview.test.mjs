@@ -46,6 +46,20 @@ test('Mermaid source is separated from safe reading HTML and resets between docu
   assert.equal(renderer.render('Plain').blocks.length, 0);
 });
 
+test('Markmap dispatch uses the first case-insensitive word and never embeds source HTML', () => {
+  const context = make();
+  const renderer = context.createStudioMarkdownRenderer(common.exports, new URL('file:///C:/docs/readme.md'));
+  const result = renderer.render('```MARKMAP trial\n# Root\n- </script><img src=x onerror=alert(1)>\n```\n```mermaid\nflowchart LR;A-->B\n```\n```text\n# ordinary\n```');
+  assert.equal(result.markmapBlocks.length, 1);
+  assert.equal(result.blocks.length, 1);
+  assert.match(result.markmapBlocks[0], /<\/script><img/);
+  assert.match(result.html, /data-markmap-index="0"/);
+  assert.match(result.html, /data-mermaid-index="0"/);
+  assert.match(result.html, /language-text/);
+  assert.doesNotMatch(result.html, /<img|<script|onerror|# Root/);
+  assert.equal(renderer.render('plain').markmapBlocks.length, 0);
+});
+
 test('standalone diagram scheduler yields a painted frame and cancels pending work', () => {
   const context = make();
   let renders = 0;
@@ -73,7 +87,7 @@ test('full-file Markdown retains its UTF-8 size guard and renders body before sc
     invalidatePreview() { context.previewGeneration++; context.cancelDiagrams?.(); },
     original: false, activeMode: 'markdown', markdownView: 'split', theme: 'light',
     cm: { getValue: () => text }, preview: { innerHTML: '', textContent: '' },
-    markdown: { render() { renders++; return { html: '<p>Readable body</p>', blocks: ['graph LR;A-->B'] }; } },
+    markdown: { render() { renders++; return { html: '<p>Readable body</p>', blocks: ['graph LR;A-->B'], markmapBlocks: [] }; } },
     mermaidPreview: { render() { diagramRenders++; return Promise.resolve(); } }
   });
   new vm.Script(editor.slice(start, end)).runInContext(context);

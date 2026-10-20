@@ -45,5 +45,38 @@
     "distribution": "mermaid.min.js",
     "distributionBytes": 5494801,
     "embeddedThirdPartyNotices": true
+  },
+  "markmapLib": {
+    "version": "0.18.12",
+    "license": "MIT; bundled third-party notices in THIRD-PARTY-NOTICES",
+    "source": "https://registry.npmjs.org/markmap-lib/-/markmap-lib-0.18.12.tgz",
+    "integrity": "sha512-WCA4OT+b71jYg0e4PS/6NRKqihod5OpPsvw1jEGHQwCtqQrY/yXXCeRyuL3axOS5cMy5pV8BSl4CwKfJU1LxJg==",
+    "integrityVerifiedDuringVendoring": true,
+    "distribution": "dist/browser/index.iife.js",
+    "distributionBytes": 677180,
+    "distributionSHA256": "edfe321a3fe46e9c0f0af8370145aee180975f243f2242f0f8181ac4273e08e1",
+    "thirdPartyNotices": ["THIRD-PARTY-NOTICES"],
+    "thirdPartyReceipts": ["third-party-receipts.json"],
+    "pluginsEnabled": false
+  },
+  "markmapView": {
+    "version": "0.18.12",
+    "license": "MIT; bundled third-party notices in ../markmap-lib-0.18.12/THIRD-PARTY-NOTICES",
+    "source": "https://registry.npmjs.org/markmap-view/-/markmap-view-0.18.12.tgz",
+    "integrity": "sha512-D8bzT1YwIC/8rkbwm6WzigVUrpOAGv7ioEGTi1Lj+Oo8gO5sAm6hhli27jvTgUcZ9TwBeIWZ+dSUP+AupYUGlQ==",
+    "integrityVerifiedDuringVendoring": true,
+    "distribution": "dist/browser/index.js",
+    "distributionBytes": 50156,
+    "distributionSHA256": "861eb6d20af18aaa300878d46d695722a73625c58b40f49236af027f18b74e07"
+  },
+  "d3": {
+    "version": "7.9.0",
+    "license": "ISC",
+    "source": "https://registry.npmjs.org/d3/-/d3-7.9.0.tgz",
+    "integrity": "sha512-e1U46jVP+w7Iut8Jt8ri1YsPOvFpg46k+K8TpCb0P+zjCkjkPnV7WzfDJzMHy1LnA+wj5pLT1wjO901gLXeEhA==",
+    "integrityVerifiedDuringVendoring": true,
+    "distribution": "dist/d3.min.js",
+    "distributionBytes": 279706,
+    "distributionSHA256": "f2094bbf6141b359722c4fe454eb6c4b0f0e42cc10cc7af921fc158fceb86539"
   }
 }

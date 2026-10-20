@@ -1,9 +1,15 @@
 function createStudioMarkdownRenderer(MarkdownIt, url) {
   const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false, maxNesting: 40 });
   let blocks = [];
+  let markmapBlocks = [];
   const defaultFence = markdown.renderer.rules.fence;
   markdown.renderer.rules.fence = (tokens, index, options, environment, renderer) => {
-    if (tokens[index].info.trim().split(/\s+/)[0].toLowerCase() !== 'mermaid') return defaultFence(tokens, index, options, environment, renderer);
+    const language = tokens[index].info.trim().split(/\s+/)[0].toLowerCase();
+    if (language === 'markmap') {
+      const block = markmapBlocks.push(tokens[index].content) - 1;
+      return '<section class="lts-markmap-card" data-markmap-index="' + block + '" aria-label="Markmap 脑图"></section>';
+    }
+    if (language !== 'mermaid') return defaultFence(tokens, index, options, environment, renderer);
     const block = blocks.push(tokens[index].content) - 1;
     return '<section class="lts-mermaid-card" data-mermaid-index="' + block + '" aria-label="Mermaid 图表"></section>';
   };
@@ -28,8 +34,9 @@ function createStudioMarkdownRenderer(MarkdownIt, url) {
   return {
     render(text) {
       blocks = [];
+      markmapBlocks = [];
       const html = markdown.render(text);
-      return { html, blocks: blocks.slice() };
+      return { html, blocks: blocks.slice(), markmapBlocks: markmapBlocks.slice() };
     }
   };
 }

@@ -118,7 +118,7 @@ function startLoadedTextStudio(dependencies) {
       documentStyle.remove();
     };
     try {
-      const { CodeMirror, MarkdownIt, createMermaidPreviewController, createStudioMarkdownRenderer, scheduleStudioDiagramRender } = dependencies;
+      const { CodeMirror, MarkdownIt, createMermaidPreviewController, createMarkmapPreviewController, createStudioMarkdownRenderer, scheduleStudioDiagramRender } = dependencies;
       const memory = Object.create(null);
       const read = (key, fallback) => {
         try { if (typeof GM_getValue === 'function') return GM_getValue('directory-studio.' + key, fallback); } catch (_) { /* Optional storage. */ }
@@ -174,6 +174,7 @@ function startLoadedTextStudio(dependencies) {
 #local-text-studio .lts-status{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 14px;padding:7px 24px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);flex-shrink:0}#local-text-studio .lts-dirty[data-dirty=true]{color:var(--blue);font-weight:600}#local-text-studio .lts-cursor{font-family:Consolas,monospace}#local-text-studio .lts-notice{position:absolute;bottom:43px;left:50%;transform:translateX(-50%);max-width:calc(100% - 40px);box-sizing:border-box;background:var(--text);color:var(--card);border-radius:8px;padding:10px 16px;box-shadow:0 6px 24px #12223a20;font-size:12px;z-index:6;overflow-wrap:anywhere}#local-text-studio .lts-notice:empty{display:none}#local-text-studio[data-original=true]{inset:auto 18px 18px auto;height:auto;background:transparent;z-index:2147483646}#local-text-studio .lts-restore{box-shadow:0 4px 24px #10244330;border-color:var(--blue)}
 #local-text-studio .lts-mermaid-card{border:1px solid var(--line);border-radius:9px;padding:14px;margin:16px 0;background:var(--surface);min-width:0}#local-text-studio .lts-mermaid-label{font:600 10px Bahnschrift,Consolas,monospace;letter-spacing:1.4px;color:var(--blue)}#local-text-studio .lts-mermaid-status{margin:5px 0 10px;font-size:11px;color:var(--muted)}#local-text-studio .lts-mermaid-card[data-state=error] .lts-mermaid-status{color:var(--tag)}#local-text-studio .lts-mermaid-surface{overflow:visible;min-width:0}#local-text-studio .lts-mermaid-image{display:block;max-width:100%;height:auto;margin:0 auto}#local-text-studio .lts-mermaid-source{font-size:11px;color:var(--muted);margin-top:12px}#local-text-studio .lts-mermaid-source summary{cursor:pointer;padding:3px 0}#local-text-studio .lts-mermaid-source summary:focus-visible{outline:3px solid var(--blue);outline-offset:2px}#local-text-studio .lts-mermaid-source pre{color:var(--text)}
 #local-text-studio .lts-mermaid-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}#local-text-studio .lts-mermaid-height{font-size:11px;min-height:28px;padding:4px 8px}#local-text-studio .lts-mermaid-surface[data-height="fixed"]{max-height:640px;overflow:auto}
+#local-text-studio .lts-markmap-card{border:1px solid var(--line);border-radius:9px;padding:14px;margin:16px 0;background:var(--surface);min-width:0}#local-text-studio .lts-markmap-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}#local-text-studio .lts-markmap-label{font:600 10px Bahnschrift,Consolas,monospace;letter-spacing:1.4px;color:var(--blue)}#local-text-studio .lts-markmap-controls{display:flex;gap:5px;flex-wrap:wrap}#local-text-studio .lts-markmap-controls .lts-button{font-size:11px;min-height:28px;padding:4px 8px}#local-text-studio .lts-markmap-status{margin:5px 0 10px;font-size:11px;color:var(--muted)}#local-text-studio .lts-markmap-card[data-state=error] .lts-markmap-status{color:var(--tag)}#local-text-studio .lts-markmap-frame{display:block;width:100%;height:clamp(280px,48vh,520px);border:0;border-radius:5px;background:var(--surface)}#local-text-studio .lts-markmap-source{font-size:11px;color:var(--muted);margin-top:12px}#local-text-studio .lts-markmap-source summary{cursor:pointer;padding:3px 0}#local-text-studio .lts-markmap-source pre{max-height:280px;overflow:auto;white-space:pre-wrap}
 @media(max-width:1000px){#local-text-studio .lts-search{max-width:none;flex-basis:45%}#local-text-studio .lts-actions{margin-left:0}#local-text-studio .lts-local{display:none}}
 @media(max-width:700px){#local-text-studio .lts-header{height:52px;padding:0 12px;gap:7px}#local-text-studio .lts-brand{font-size:11px;letter-spacing:1px}#local-text-studio .lts-header-actions{gap:4px}#local-text-studio .lts-button{font-size:11px;padding:6px 8px;min-height:32px}#local-text-studio .lts-heading{padding:12px;gap:7px;align-items:flex-start}#local-text-studio .lts-path{font-size:12px;gap:2px}#local-text-studio .lts-path [aria-current=page]{font-size:18px;padding:3px 7px}#local-text-studio .lts-parent{margin-top:3px}#local-text-studio .lts-toolbar{padding:8px 12px;gap:6px}#local-text-studio .lts-search{flex-basis:100%;width:100%}#local-text-studio .lts-matches{font-size:10px;min-width:48px}#local-text-studio .lts-mode{font-size:11px;max-width:150px;flex:1}#local-text-studio .lts-actions{gap:4px;flex-wrap:wrap}#local-text-studio .lts-views{gap:3px;padding-left:5px}#local-text-studio .lts-panes[data-layout=split]{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr)}#local-text-studio .lts-panes[data-layout=split] .lts-preview{border-left:0;border-top:1px solid var(--line)}#local-text-studio .lts-preview{padding:18px}#local-text-studio .lts-status{padding:7px 12px;font-size:10px}#local-text-studio .lts-encoding{display:none}#local-text-studio .CodeMirror{font-size:12px}}
 @media(prefers-reduced-motion:reduce){#local-text-studio *,#local-text-studio *:before,#local-text-studio *:after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
@@ -302,12 +303,13 @@ function startLoadedTextStudio(dependencies) {
       const baseline = cm.getValue();
       const markdown = createStudioMarkdownRenderer(MarkdownIt, url);
       const mermaidPreview = createMermaidPreviewController(host, preview);
+      const markmapPreview = createMarkmapPreviewController(host, preview);
       let previewGeneration = 0;
       let cancelDiagrams = () => {};
       function invalidatePreview() {
-        previewGeneration++; cancelDiagrams(); mermaidPreview.invalidate();
+        previewGeneration++; cancelDiagrams(); mermaidPreview.invalidate(); markmapPreview.invalidate();
       }
-      cleanup.push(() => { cancelDiagrams(); mermaidPreview.dispose(); });
+      cleanup.push(() => { cancelDiagrams(); mermaidPreview.dispose(); markmapPreview.dispose(); });
       function announce(message) {
         clearTimeout(noticeTimer);
         notice.textContent = message;
@@ -349,9 +351,10 @@ function startLoadedTextStudio(dependencies) {
           // Only the shared escaped, resource-free renderer may produce preview HTML.
           preview.innerHTML = rendered.html;
           const generation = previewGeneration;
-          if (rendered.blocks.length) cancelDiagrams = scheduleStudioDiagramRender(() => {
+          if (rendered.blocks.length || rendered.markmapBlocks.length) cancelDiagrams = scheduleStudioDiagramRender(() => {
             if (generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit') {
               mermaidPreview.render(rendered.blocks, theme, () => generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit').catch(() => {});
+              if (rendered.markmapBlocks.length) markmapPreview.render(rendered.markmapBlocks, theme, () => generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit').catch(() => {});
             }
           });
         } catch (_) { preview.textContent = '预览失败。原始编辑内容未改动，可继续编辑或下载副本。'; }

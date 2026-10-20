@@ -1,0 +1,295 @@
+
+#local-text-studio .CodeMirror{
+  
+  font-family: monospace;
+  height: 300px;
+  color: black;
+  direction: ltr;
+}
+#local-text-studio .CodeMirror-lines{
+  padding: 4px 0; 
+}
+#local-text-studio .CodeMirror pre.CodeMirror-line,
+#local-text-studio .CodeMirror pre.CodeMirror-line-like{
+  padding: 0 4px; 
+}
+#local-text-studio .CodeMirror-scrollbar-filler,
+#local-text-studio .CodeMirror-gutter-filler{
+  background-color: white; 
+}
+#local-text-studio .CodeMirror-gutters{
+  border-right: 1px solid #ddd;
+  background-color: #f7f7f7;
+  white-space: nowrap;
+}
+#local-text-studio .CodeMirror-linenumbers{}
+#local-text-studio .CodeMirror-linenumber{
+  padding: 0 3px 0 5px;
+  min-width: 20px;
+  text-align: right;
+  color: #999;
+  white-space: nowrap;
+}
+#local-text-studio .CodeMirror-guttermarker{ color: black; }
+#local-text-studio .CodeMirror-guttermarker-subtle{ color: #999; }
+#local-text-studio .CodeMirror-cursor{
+  border-left: 1px solid black;
+  border-right: none;
+  width: 0;
+}
+#local-text-studio .CodeMirror div.CodeMirror-secondarycursor{
+  border-left: 1px solid silver;
+}
+#local-text-studio .cm-fat-cursor .CodeMirror-cursor{
+  width: auto;
+  border: 0 !important;
+  background: #7e7;
+}
+#local-text-studio .cm-fat-cursor div.CodeMirror-cursors{
+  z-index: 1;
+}
+#local-text-studio .cm-fat-cursor .CodeMirror-line::selection,
+#local-text-studio .cm-fat-cursor .CodeMirror-line > span::selection,
+#local-text-studio .cm-fat-cursor .CodeMirror-line > span > span::selection{ background: transparent; }
+#local-text-studio .cm-fat-cursor .CodeMirror-line::-moz-selection,
+#local-text-studio .cm-fat-cursor .CodeMirror-line > span::-moz-selection,
+#local-text-studio .cm-fat-cursor .CodeMirror-line > span > span::-moz-selection{ background: transparent; }
+#local-text-studio .cm-fat-cursor{ caret-color: transparent; }
+@-moz-keyframes lts-cm-blink {
+  0% {}
+  50% { background-color: transparent; }
+  100% {}
+}
+@-webkit-keyframes lts-cm-blink {
+  0% {}
+  50% { background-color: transparent; }
+  100% {}
+}
+@keyframes lts-cm-blink {
+  0% {}
+  50% { background-color: transparent; }
+  100% {}
+}
+#local-text-studio .CodeMirror-overwrite .CodeMirror-cursor{}
+#local-text-studio .cm-tab{ display: inline-block; text-decoration: inherit; }
+#local-text-studio .CodeMirror-rulers{
+  position: absolute;
+  left: 0; right: 0; top: -50px; bottom: 0;
+  overflow: hidden;
+}
+#local-text-studio .CodeMirror-ruler{
+  border-left: 1px solid #ccc;
+  top: 0; bottom: 0;
+  position: absolute;
+}
+#local-text-studio .cm-s-default .cm-header{color: blue;}
+#local-text-studio .cm-s-default .cm-quote{color: #090;}
+#local-text-studio .cm-negative{color: #d44;}
+#local-text-studio .cm-positive{color: #292;}
+#local-text-studio .cm-header,
+#local-text-studio .cm-strong{font-weight: bold;}
+#local-text-studio .cm-em{font-style: italic;}
+#local-text-studio .cm-link{text-decoration: underline;}
+#local-text-studio .cm-strikethrough{text-decoration: line-through;}
+#local-text-studio .cm-s-default .cm-keyword{color: #708;}
+#local-text-studio .cm-s-default .cm-atom{color: #219;}
+#local-text-studio .cm-s-default .cm-number{color: #164;}
+#local-text-studio .cm-s-default .cm-def{color: #00f;}
+#local-text-studio .cm-s-default .cm-variable,
+#local-text-studio .cm-s-default .cm-punctuation,
+#local-text-studio .cm-s-default .cm-property,
+#local-text-studio .cm-s-default .cm-operator{}
+#local-text-studio .cm-s-default .cm-variable-2{color: #05a;}
+#local-text-studio .cm-s-default .cm-variable-3,
+#local-text-studio .cm-s-default .cm-type{color: #085;}
+#local-text-studio .cm-s-default .cm-comment{color: #a50;}
+#local-text-studio .cm-s-default .cm-string{color: #a11;}
+#local-text-studio .cm-s-default .cm-string-2{color: #f50;}
+#local-text-studio .cm-s-default .cm-meta{color: #555;}
+#local-text-studio .cm-s-default .cm-qualifier{color: #555;}
+#local-text-studio .cm-s-default .cm-builtin{color: #30a;}
+#local-text-studio .cm-s-default .cm-bracket{color: #997;}
+#local-text-studio .cm-s-default .cm-tag{color: #170;}
+#local-text-studio .cm-s-default .cm-attribute{color: #00c;}
+#local-text-studio .cm-s-default .cm-hr{color: #999;}
+#local-text-studio .cm-s-default .cm-link{color: #00c;}
+#local-text-studio .cm-s-default .cm-error{color: #f00;}
+#local-text-studio .cm-invalidchar{color: #f00;}
+#local-text-studio .CodeMirror-composing{ border-bottom: 2px solid; }
+#local-text-studio div.CodeMirror span.CodeMirror-matchingbracket{color: #0b0;}
+#local-text-studio div.CodeMirror span.CodeMirror-nonmatchingbracket{color: #a22;}
+#local-text-studio .CodeMirror-matchingtag{ background: rgba(255, 150, 0, .3); }
+#local-text-studio .CodeMirror-activeline-background{background: #e8f2ff;}
+#local-text-studio .CodeMirror{
+  position: relative;
+  overflow: hidden;
+  background: white;
+}
+#local-text-studio .CodeMirror-scroll{
+  overflow: scroll !important; 
+  
+  
+  margin-bottom: -50px; margin-right: -50px;
+  padding-bottom: 50px;
+  height: 100%;
+  outline: none; 
+  position: relative;
+  z-index: 0;
+}
+#local-text-studio .CodeMirror-sizer{
+  position: relative;
+  border-right: 50px solid transparent;
+}
+#local-text-studio .CodeMirror-vscrollbar,
+#local-text-studio .CodeMirror-hscrollbar,
+#local-text-studio .CodeMirror-scrollbar-filler,
+#local-text-studio .CodeMirror-gutter-filler{
+  position: absolute;
+  z-index: 6;
+  display: none;
+  outline: none;
+}
+#local-text-studio .CodeMirror-vscrollbar{
+  right: 0; top: 0;
+  overflow-x: hidden;
+  overflow-y: scroll;
+}
+#local-text-studio .CodeMirror-hscrollbar{
+  bottom: 0; left: 0;
+  overflow-y: hidden;
+  overflow-x: scroll;
+}
+#local-text-studio .CodeMirror-scrollbar-filler{
+  right: 0; bottom: 0;
+}
+#local-text-studio .CodeMirror-gutter-filler{
+  left: 0; bottom: 0;
+}
+#local-text-studio .CodeMirror-gutters{
+  position: absolute; left: 0; top: 0;
+  min-height: 100%;
+  z-index: 3;
+}
+#local-text-studio .CodeMirror-gutter{
+  white-space: normal;
+  height: 100%;
+  display: inline-block;
+  vertical-align: top;
+  margin-bottom: -50px;
+}
+#local-text-studio .CodeMirror-gutter-wrapper{
+  position: absolute;
+  z-index: 4;
+  background: none !important;
+  border: none !important;
+}
+#local-text-studio .CodeMirror-gutter-background{
+  position: absolute;
+  top: 0; bottom: 0;
+  z-index: 4;
+}
+#local-text-studio .CodeMirror-gutter-elt{
+  position: absolute;
+  cursor: default;
+  z-index: 4;
+}
+#local-text-studio .CodeMirror-gutter-wrapper ::selection{ background-color: transparent }
+#local-text-studio .CodeMirror-gutter-wrapper ::-moz-selection{ background-color: transparent }
+#local-text-studio .CodeMirror-lines{
+  cursor: text;
+  min-height: 1px; 
+}
+#local-text-studio .CodeMirror pre.CodeMirror-line,
+#local-text-studio .CodeMirror pre.CodeMirror-line-like{
+  
+  -moz-border-radius: 0; -webkit-border-radius: 0; border-radius: 0;
+  border-width: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  margin: 0;
+  white-space: pre;
+  word-wrap: normal;
+  line-height: inherit;
+  color: inherit;
+  z-index: 2;
+  position: relative;
+  overflow: visible;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-variant-ligatures: contextual;
+  font-variant-ligatures: contextual;
+}
+#local-text-studio .CodeMirror-wrap pre.CodeMirror-line,
+#local-text-studio .CodeMirror-wrap pre.CodeMirror-line-like{
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  word-break: normal;
+}
+#local-text-studio .CodeMirror-linebackground{
+  position: absolute;
+  left: 0; right: 0; top: 0; bottom: 0;
+  z-index: 0;
+}
+#local-text-studio .CodeMirror-linewidget{
+  position: relative;
+  z-index: 2;
+  padding: 0.1px; 
+}
+#local-text-studio .CodeMirror-widget{}
+#local-text-studio .CodeMirror-rtl pre{ direction: rtl; }
+#local-text-studio .CodeMirror-code{
+  outline: none;
+}
+#local-text-studio .CodeMirror-scroll,
+#local-text-studio .CodeMirror-sizer,
+#local-text-studio .CodeMirror-gutter,
+#local-text-studio .CodeMirror-gutters,
+#local-text-studio .CodeMirror-linenumber{
+  -moz-box-sizing: content-box;
+  box-sizing: content-box;
+}
+#local-text-studio .CodeMirror-measure{
+  position: absolute;
+  width: 100%;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+#local-text-studio .CodeMirror-cursor{
+  position: absolute;
+  pointer-events: none;
+}
+#local-text-studio .CodeMirror-measure pre{ position: static; }
+#local-text-studio div.CodeMirror-cursors{
+  visibility: hidden;
+  position: relative;
+  z-index: 3;
+}
+#local-text-studio div.CodeMirror-dragcursors{
+  visibility: visible;
+}
+#local-text-studio .CodeMirror-focused div.CodeMirror-cursors{
+  visibility: visible;
+}
+#local-text-studio .CodeMirror-selected{ background: #d9d9d9; }
+#local-text-studio .CodeMirror-focused .CodeMirror-selected{ background: #d7d4f0; }
+#local-text-studio .CodeMirror-crosshair{ cursor: crosshair; }
+#local-text-studio .CodeMirror-line::selection,
+#local-text-studio .CodeMirror-line > span::selection,
+#local-text-studio .CodeMirror-line > span > span::selection{ background: #d7d4f0; }
+#local-text-studio .CodeMirror-line::-moz-selection,
+#local-text-studio .CodeMirror-line > span::-moz-selection,
+#local-text-studio .CodeMirror-line > span > span::-moz-selection{ background: #d7d4f0; }
+#local-text-studio .cm-searching{
+  background-color: #ffa;
+  background-color: rgba(255, 255, 0, .4);
+}
+#local-text-studio .cm-force-border{ padding-right: .1px; }
+
+@media print {
+#local-text-studio .CodeMirror div.CodeMirror-cursors{
+    visibility: hidden;
+  }
+}
+#local-text-studio .cm-tab-wrap-hack:after{ content: ''; }
+#local-text-studio span.CodeMirror-selectedtext{ background: none; }

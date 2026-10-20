@@ -11,7 +11,7 @@ if (!/^[0-9]+\.[0-9]+\.[0-9]+-local\.[0-9]+$/.test(manifest.version)) throw new 
 if (manifest.mode !== 'local') throw new Error('Not an explicit local build');
 if (!Number.isInteger(manifest.port) || manifest.port < 1024 || manifest.port > 65535) throw new Error('Invalid port');
 const prefix = '/' + manifest.version + '/';
-const allowlist = new Set(['directory-studio.user.js', 'directory-studio.meta.js', 'editor.js', 'editor.css', 'markdown.js', 'mermaid.js']);
+const allowlist = new Set(['directory-studio.user.js', 'directory-studio.meta.js', 'editor.js', 'editor.css', 'markdown.js', 'mermaid.js', 'markmap.js']);
 const server = http.createServer(async (request, response) => {
   const host = '127.0.0.1:' + manifest.port;
   if (request.headers.host !== host || !['GET', 'HEAD'].includes(request.method)) {

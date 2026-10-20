@@ -20,6 +20,9 @@ const directoryCode = directory.slice(metadataEnd).trim();
 const cmRoot = 'vendor/codemirror-' + manifest.codemirror.version + '/';
 const mdRoot = 'vendor/markdown-it-' + manifest.markdownIt.version + '/';
 const mermaidRoot = 'vendor/mermaid-' + manifest.mermaid.version + '/';
+const markmapLibRoot = 'vendor/markmap-lib-' + manifest.markmapLib.version + '/';
+const markmapViewRoot = 'vendor/markmap-view-' + manifest.markmapView.version + '/';
+const d3Root = 'vendor/d3-' + manifest.d3.version + '/';
 const stripSourceMaps = source => source.replace(/^\/\/[#@] sourceMappingURL=.*$/gm, '');
 const moduleWrapper = source => '(function(module, exports, require) {\n' + stripSourceMaps(source) + '\n})(localModule, localModule.exports, localRequire);\n';
 const license = async (name, root, version) => '/*\n' + name + ' ' + version + '\n' + await read(root + 'LICENSE') + '\n*/\n';
@@ -36,8 +39,9 @@ const markdown = await license('markdown-it', mdRoot, manifest.markdownIt.versio
   '"use strict";\nlet localModule = { exports: {} };\nconst localRequire = () => { throw new Error("Unexpected Markdown dependency"); };\n' +
   moduleWrapper(await read(mdRoot + manifest.markdownIt.distribution)) +
   'const MarkdownIt = localModule.exports;\nfunction getTextStudioMermaidBundle() { return environment.getResourceText("mermaid"); }\n' +
-  await read('mermaid-studio.src.js') + '\n' + await read('markdown-preview.src.js') +
-  '\nreturn { MarkdownIt, createMermaidPreviewController, createStudioMarkdownRenderer, scheduleStudioDiagramRender };\n';
+  'function getTextStudioMarkmapBundle() { return environment.getResourceText("markmap"); }\n' +
+  await read('mermaid-studio.src.js') + '\n' + await read('markmap-studio.src.js') + '\n' + await read('markdown-preview.src.js') +
+  '\nreturn { MarkdownIt, createMermaidPreviewController, createMarkmapPreviewController, createStudioMarkdownRenderer, scheduleStudioDiagramRender };\n';
 
 // The upstream CSS has selector blocks, media rules, and simple cursor keyframes.
 function scopeEditorCSS(css) {
@@ -52,7 +56,12 @@ const assets = {
   editor: { file: 'editor.js', text: editor },
   editorCSS: { file: 'editor.css', text: scopeEditorCSS(await read(cmRoot + 'lib/codemirror.css')) },
   markdown: { file: 'markdown.js', text: markdown },
-  mermaid: { file: 'mermaid.js', text: await license('Mermaid', mermaidRoot, manifest.mermaid.version) + await read(mermaidRoot + manifest.mermaid.distribution) }
+  mermaid: { file: 'mermaid.js', text: await license('Mermaid', mermaidRoot, manifest.mermaid.version) + await read(mermaidRoot + manifest.mermaid.distribution) },
+  markmap: { file: 'markmap.js', text:
+    '/*\n' + (await read(markmapLibRoot + 'THIRD-PARTY-NOTICES')).replace(/\*\//g, '* /') + '\n*/\n' +
+    await license('D3', d3Root, manifest.d3.version) + await read(d3Root + manifest.d3.distribution) + '\n' +
+    await license('markmap-lib', markmapLibRoot, manifest.markmapLib.version) + await read(markmapLibRoot + manifest.markmapLib.distribution) + '\n' +
+    await license('markmap-view', markmapViewRoot, manifest.markmapView.version) + await read(markmapViewRoot + manifest.markmapView.distribution) }
 };
 const publicBase = 'https://raw.githubusercontent.com/wuyixiang9/directory-studio/main/';
 const version = local ? process.env.DIRECTORY_STUDIO_LOCAL_VERSION : pkg.version;
@@ -90,4 +99,4 @@ if (local) {
   await writeFile(new URL('directory-studio.user.js', base), payload);
   await writeFile(new URL('directory-studio.meta.js', base), metadata + '\n');
 }
-console.log('Generated ' + (local ? 'local candidate ' : 'release ') + version + ' (' + Buffer.byteLength(payload) + ' UTF-8 core bytes) and four install-cached resources.');
+console.log('Generated ' + (local ? 'local candidate ' : 'release ') + version + ' (' + Buffer.byteLength(payload) + ' UTF-8 core bytes) and ' + Object.keys(assets).length + ' install-cached resources.');
