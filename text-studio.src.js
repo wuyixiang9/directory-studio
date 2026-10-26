@@ -1,5 +1,7 @@
 function startLoadedTextStudio(dependencies) {
   'use strict';
+  // The extension supplies already-read UTF-8 text and owns navigation and disk writes.
+  const adapter = dependencies.host;
   const MODES = {
     plain: ['纯文本', null], markdown: ['Markdown', 'text/x-markdown'],
     javascript: ['JavaScript', 'text/javascript'], json: ['JSON', 'application/json'],
@@ -27,15 +29,16 @@ function startLoadedTextStudio(dependencies) {
     ps1: 'powershell', psm1: 'powershell', psd1: 'powershell', sql: 'sql',
     bat: 'plain', cmd: 'plain', xml: 'xml'
   };
-  if (location.protocol !== 'file:' || window.top !== window.self || location.pathname.endsWith('/')) return false;
+  if (!adapter && (location.protocol !== 'file:' || window.top !== window.self || location.pathname.endsWith('/'))) return false;
   const decode = value => { try { return decodeURIComponent(value); } catch (_) { return value; } };
-  const url = new URL(location.href);
+  const url = new URL(adapter ? adapter.href : location.href);
+  if (url.protocol !== 'file:') return false;
   url.search = '';
   url.hash = '';
   const filename = decode(url.pathname.split('/').pop() || '');
   const extension = filename.includes('.') ? filename.slice(filename.lastIndexOf('.') + 1).toLowerCase() : '';
   if (!Object.hasOwn(EXTENSIONS, extension)) return false;
-  const mime = document.contentType.toLowerCase().split(';')[0].trim();
+  const mime = adapter ? 'text/plain' : document.contentType.toLowerCase().split(';')[0].trim();
   if (/html|xml|svg/.test(mime) || (!mime.startsWith('text/') && !/^application\/(?:json|javascript|x-javascript|ecmascript|yaml|x-yaml|toml|sql|x-sh|x-powershell)$/.test(mime))) return false;
   const TOKEN = Symbol.for('directory-studio.text.startup');
   if (document[TOKEN] || document.getElementById('local-text-studio') || document.getElementById('local-text-studio-fallback')) return true;
@@ -58,6 +61,11 @@ function startLoadedTextStudio(dependencies) {
     delete document[TOKEN];
   }
   function nativeText() {
+    if (adapter) {
+      const pre = document.createElement('pre');
+      pre.textContent = adapter.text;
+      return { pre, nativeNodes: [] };
+    }
     return environment.nativeText(document, mime);
   }
   function attempt() {
@@ -83,7 +91,7 @@ function startLoadedTextStudio(dependencies) {
       document.body.append(note);
       return;
     }
-    try { mountText(pre, source, nativeNodes); } catch (_) { delete document[TOKEN]; }
+    try { mountText(pre, source, nativeNodes); } catch (error) { delete document[TOKEN]; if (adapter) throw error; }
   }
 
   function mountText(pre, source, nativeNodes) {
@@ -185,6 +193,7 @@ function startLoadedTextStudio(dependencies) {
       const headerActions = element('div', 'lts-header-actions');
       const themeButton = button('深色', '切换深色主题');
       const originalButton = button('原始文本');
+      if (adapter) originalButton.hidden = true;
       headerActions.append(element('span', 'lts-local', '离线编辑 · 不改写原文件'), themeButton, originalButton);
       header.append(element('span', 'lts-brand', 'DIRECTORY STUDIO / TEXT'), headerActions);
       const heading = element('div', 'lts-heading');
@@ -251,6 +260,8 @@ function startLoadedTextStudio(dependencies) {
       copyText.title = '复制当前编辑内容（含未保存修改）';
       const download = button('下载编辑副本', '下载编辑副本 (Ctrl+S)');
       download.classList.add('lts-primary');
+      const saveOriginal = adapter ? button('保存原文件', '授权后保存原文件 (Ctrl+S)') : null;
+      if (saveOriginal) { download.title = '下载 UTF-8 编辑副本'; download.setAttribute('aria-label', '下载编辑副本'); }
       const actions = element('div', 'lts-actions');
       actions.append(wrapButton, undo, redo, format);
       const views = element('div', 'lts-views');
@@ -264,6 +275,7 @@ function startLoadedTextStudio(dependencies) {
         views.append(control);
       }
       toolbar.append(searchGroup, mode, actions, views, copyText, download);
+      if (saveOriginal) toolbar.append(saveOriginal);
       const panes = element('div', 'lts-panes');
       const editorPane = element('div', 'lts-editor');
       const preview = element('article', 'lts-preview');
@@ -276,6 +288,7 @@ function startLoadedTextStudio(dependencies) {
       const cursorLabel = element('span', 'lts-cursor');
       const encoding = element('span', 'lts-encoding', '下载为 UTF-8 · 不保留原始字节编码');
       encoding.title = '源文本取自 Chrome 解码后的 PRE；下载不会覆盖原文件，换行可能归一化为 LF。';
+      if (adapter) { encoding.textContent = 'UTF-8 · 原位保存需授权'; encoding.title = '读取原始 UTF-8 字节；保存保留 BOM 和一致的换行符，检测外部修改。'; }
       status.append(dirtyLabel, cursorLabel, encoding);
       const notice = element('div', 'lts-notice');
       notice.setAttribute('role', 'status');
@@ -287,7 +300,7 @@ function startLoadedTextStudio(dependencies) {
       host.append(app, restore, notice);
       host.dataset.theme = theme;
       document.head.append(style, documentStyle);
-      document.body.append(host);
+      (adapter ? adapter.mount : document.body).append(host);
       const cm = CodeMirror(editorPane, {
         value: source, mode: MODES[activeMode][1], theme: 'localstudio', lineNumbers: true,
         lineWrapping: wrap, indentUnit: 2, tabSize: 2, smartIndent: true,
@@ -300,7 +313,9 @@ function startLoadedTextStudio(dependencies) {
       cm.getInputField().setAttribute('aria-label', '文本编辑器');
       cm.getInputField().spellcheck = false;
       cm.clearHistory();
-      const baseline = cm.getValue();
+      let baseline = cm.getValue();
+      let saving = false;
+      let disposed = false;
       const markdown = createStudioMarkdownRenderer(MarkdownIt, url);
       const mermaidPreview = createMermaidPreviewController(host, preview);
       const markmapPreview = createMarkmapPreviewController(host, preview);
@@ -419,6 +434,19 @@ function startLoadedTextStudio(dependencies) {
           announce('无法下载副本。可在编辑器中选择并复制文本。');
         }
       }
+      async function persistOriginal() {
+        if (!adapter || saving || disposed) return;
+        const snapshot = cm.getValue();
+        saving = true; saveOriginal.disabled = true;
+        try {
+          await adapter.save(snapshot);
+          if (disposed) return;
+          baseline = snapshot; updateStatus();
+          announce(dirty ? '已保存提交时的内容；之后的修改仍未保存。' : '已保存原文件。');
+        } catch (error) {
+          if (!disposed) announce(error?.name === 'AbortError' ? '已取消授权，编辑内容保留。' : String(error?.message || '保存失败，编辑内容保留。'));
+        } finally { saving = false; if (!disposed) saveOriginal.disabled = false; }
+      }
       function setOriginal(value) {
         original = value;
         if (value) invalidatePreview();
@@ -484,6 +512,7 @@ function startLoadedTextStudio(dependencies) {
         }
       });
       download.addEventListener('click', exportCopy);
+      if (saveOriginal) saveOriginal.addEventListener('click', persistOriginal);
       originalButton.addEventListener('click', () => setOriginal(true));
       restore.addEventListener('click', () => setOriginal(false));
       cm.on('change', () => {
@@ -496,7 +525,7 @@ function startLoadedTextStudio(dependencies) {
       });
       cm.on('cursorActivity', updateStatus);
       const onBeforeUnload = event => {
-        if (!dirty) return;
+        if (!dirty && !saving) return;
         event.preventDefault();
         event.returnValue = '';
       };
@@ -508,7 +537,7 @@ function startLoadedTextStudio(dependencies) {
         if (key === 's' || key === 'f') {
           event.preventDefault();
           event.stopPropagation();
-          if (key === 's') exportCopy();
+          if (key === 's') { if (adapter) void persistOriginal(); else exportCopy(); }
           else { search.focus(); search.select(); }
         }
       }, true);
@@ -530,6 +559,12 @@ function startLoadedTextStudio(dependencies) {
       applyLayout();
       countMatches();
       updateStatus();
+      if (adapter) adapter.ready({
+        getValue: () => cm.getValue(), isDirty: () => cm.getValue() !== baseline,
+        isSaving: () => saving,
+        setTheme(value) { theme = value === 'dark' ? 'dark' : 'light'; applyTheme(); renderPreview(); },
+        dispose() { if (disposed) return; disposed = true; rollback(); delete document[TOKEN]; }
+      });
     } catch (error) {
       rollback();
       throw error;

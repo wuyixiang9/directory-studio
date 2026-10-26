@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Directory Studio",
+  "version": "1.6.2",
+  "description": "本地目录、图片、代码和 Markdown 离线工作台，支持外部 file 路径自动打开。",
+  "minimum_chrome_version": "120",
+  "permissions": ["storage", "webNavigation"],
+  "host_permissions": ["file:///*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "action": {
+    "default_title": "打开 Directory Studio",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
+  },
+  "content_scripts": [
+    { "matches": ["file:///*"], "js": ["bridge.js"], "run_at": "document_start", "all_frames": false }
+  ],
+  "sandbox": { "pages": ["mermaid-sandbox.html", "markmap-sandbox.html"] },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: blob: data:; connect-src 'self' file:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'",
+    "sandbox": "sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'"
+  }
+}

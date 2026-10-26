@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Directory Studio</title>
+    <link rel="icon" href="icons/32.png" />
+    <script src="theme.js"></script>
+    <link rel="stylesheet" href="studio.css" />
+    <script src="shared.js" defer></script>
+    <script src="studio.js" type="module"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <strong class="brand"><span aria-hidden="true">▥</span> DIRECTORY STUDIO</strong>
+      <span class="badge">本地 · 离线</span>
+      <div class="top-actions">
+        <label class="capture"><input id="capture" type="checkbox" checked /> 自动接管 file 路径</label>
+        <button id="theme" type="button">切换主题</button>
+        <button id="help" type="button">使用说明</button>
+      </div>
+    </header>
+    <div id="permission" role="status" hidden>
+      需要开启插件的「允许访问文件网址」才能自动读取本地路径。<button id="settings" type="button">
+        打开扩展设置</button
+      ><button id="retry" type="button">已开启，重试</button>
+    </div>
+    <form id="path-form" class="pathbar">
+      <button id="up" type="button" title="上级目录 · Alt+↑">↑</button>
+      <input
+        id="path"
+        aria-label="本地路径"
+        placeholder="输入 file:///D:/notes/ 或 D:\notes\，然后回车"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button type="submit">打开</button>
+      <button id="copy-path" type="button">复制路径</button>
+      <button id="native" type="button">原生打开</button>
+    </form>
+    <div class="workspace">
+      <aside class="sidebar">
+        <div class="sidebar-heading">
+          <span>常用目录</span><button id="favorite" type="button" title="收藏当前目录">＋</button>
+        </div>
+        <nav id="favorites" aria-label="收藏目录"></nav>
+        <div class="sidebar-foot">直接保存需要单独授权。<br />文件正文只在当前页面内处理。</div>
+      </aside>
+      <main id="main">
+        <nav id="breadcrumbs" class="breadcrumbs" aria-label="当前路径"></nav>
+        <section id="directory" hidden>
+          <div class="directory-tools">
+            <input
+              id="search"
+              type="search"
+              placeholder="搜索当前目录 · /"
+              aria-label="搜索当前目录"
+              autocomplete="off"
+            />
+            <select id="filter" aria-label="文件范围">
+              <option value="all">全部</option>
+              <option value="folders">文件夹</option>
+              <option value="files">文件</option>
+            </select>
+            <select id="sort" aria-label="排序">
+              <option value="name">名称排序</option>
+              <option value="modified">修改时间</option>
+              <option value="size">文件大小</option>
+            </select>
+            <button id="direction" type="button">升序</button>
+            <button id="view" type="button">网格视图</button>
+          </div>
+          <div class="list-heading"><span>名称</span><span>大小</span><span>修改时间</span></div>
+          <div id="entries" class="entries" role="list" aria-label="目录内容"></div>
+          <footer class="pagination">
+            <span id="count"></span><button id="previous" type="button">上一页</button><span id="page"></span
+            ><button id="next" type="button">下一页</button>
+          </footer>
+        </section>
+        <section id="welcome" class="welcome">
+          <div class="welcome-icon" aria-hidden="true">▥</div>
+          <h1>你的本地文件工作台</h1>
+          <p>浏览目录、查看图片、编辑代码与 Markdown。<br />外部打开的本地路径可以直接进入这里。</p>
+          <p>在上方输入本地路径，或打开一个已知文件。</p>
+          <button id="pick-file" type="button">选择文件并授权编辑</button>
+        </section>
+        <section id="editor-slot" hidden aria-label="文件编辑区"></section>
+        <section id="failure" class="welcome" hidden>
+          <h1>无法打开这个路径</h1>
+          <p id="failure-detail"></p>
+          <button id="failure-native" type="button">使用浏览器原生打开</button>
+        </section>
+      </main>
+    </div>
+    <footer class="app-status">
+      <span id="status" role="status" aria-live="polite">就绪</span>
+      <span id="loading" role="status" hidden>正在读取…</span>
+    </footer>
+    <dialog id="help-dialog">
+      <h2>使用 Directory Studio</h2>
+      <p>1. 在扩展详情开启「允许访问文件网址」。</p>
+      <p>2. 从外部打开本地目录、文本或图片，插件会自动转入工作台。HTML、PDF 和未知文件保持浏览器原生行为。</p>
+      <p>
+        3. 编辑后可下载副本；保存原文件时，选择并授权同一个原文件。也可以通过「选择文件并授权编辑」打开文件。
+      </p>
+      <p>
+        文件网址权限负责读取，文件选择器授权负责写入。插件仅原位保存 UTF-8
+        文本；磁盘发生外部修改时会停止保存。
+      </p>
+      <p>
+        外部路径转入可能短暂过渡；工作台内切目录和文件保持同一页面。安装插件后，请停用同名油猴脚本，避免同时接管。
+      </p>
+      <p>
+        路径及收藏保存在本机；不会上传或持久化正文。取消勾选「自动接管」可暂停。地址栏使用插件地址，真实路径显示在路径栏。
+      </p>
+      <p>
+        更改扩展权限、停用或重新加载插件可能直接关闭工作台，请先保存编辑。系统文件选择器不提供完整路径，首次授权保存时需确认选中原文件。
+      </p>
+      <button id="close-help" type="button">知道了</button>
+    </dialog>
+  </body>
+</html>

@@ -26,6 +26,7 @@ function createStudioMarkdownRenderer(MarkdownIt, url) {
     else {
       const target = new URL(href, url);
       token.attrSet('href', target.href);
+      if (target.protocol === 'file:' && !/^(?:file:|\/\/)/i.test(href)) token.attrSet('data-studio-relative', 'true');
       if (target.protocol === 'http:' || target.protocol === 'https:') token.attrSet('target', '_blank');
     }
     token.attrSet('rel', 'noopener noreferrer');

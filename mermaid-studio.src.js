@@ -108,7 +108,8 @@ function createMermaidRenderer(host) {
     });
     const opening = ready;
     try {
-      frame.srcdoc = createMermaidSandboxDocument(nonce);
+      if (typeof environment !== 'undefined' && typeof environment.sandboxURL === 'function') frame.src = environment.sandboxURL('mermaid', nonce);
+      else frame.srcdoc = createMermaidSandboxDocument(nonce);
       host.append(frame);
     } catch (error) { closeFrame(error); }
     return opening;

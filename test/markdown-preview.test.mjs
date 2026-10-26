@@ -46,6 +46,14 @@ test('Mermaid source is separated from safe reading HTML and resets between docu
   assert.equal(renderer.render('Plain').blocks.length, 0);
 });
 
+test('renderer distinguishes relative file links from explicit local URLs for picker-opened documents', () => {
+  const context = make();
+  const renderer = context.createStudioMarkdownRenderer(common.exports, new URL('file:///__authorized__/readme.md'));
+  const html = renderer.render('[relative](../other.md)\n[absolute](file:///D:/docs/other.md)').html;
+  assert.match(html, /href="file:\/\/\/other.md" data-studio-relative="true"/);
+  assert.match(html, /href="file:\/\/\/D:\/docs\/other.md" rel=/);
+});
+
 test('Markmap dispatch uses the first case-insensitive word and never embeds source HTML', () => {
   const context = make();
   const renderer = context.createStudioMarkdownRenderer(common.exports, new URL('file:///C:/docs/readme.md'));

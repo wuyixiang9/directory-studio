@@ -186,9 +186,12 @@ function createMarkmapPreviewController(host, preview) {
         const start = () => {
           started = true;
           try {
-            if (bundle === undefined) bundle = getTextStudioMarkmapBundle();
-            if (typeof bundle !== 'string' || !bundle.trim()) throw new Error('Markmap 缓存资源不可用；请重新安装本地候选。');
-            frame.srcdoc = createMarkmapSandboxDocument(nonce, bundle);
+            if (typeof environment !== 'undefined' && typeof environment.sandboxURL === 'function') frame.src = environment.sandboxURL('markmap', nonce);
+            else {
+              if (bundle === undefined) bundle = getTextStudioMarkmapBundle();
+              if (typeof bundle !== 'string' || !bundle.trim()) throw new Error('Markmap 缓存资源不可用；请重新安装本地候选。');
+              frame.srcdoc = createMarkmapSandboxDocument(nonce, bundle);
+            }
           } catch (error) { fail(String(error && error.message || 'Markmap rendering failed.')); }
         };
         function updateVisibility() {
