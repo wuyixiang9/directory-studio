@@ -1,5 +1,5 @@
 :root {
-  --bg: #edf3fb;
+  --bg: #fbfdff;
   --surface: #fbfdff;
   --card: #fff;
   --text: #182b49;
@@ -17,7 +17,7 @@
     sans-serif;
 }
 :root[data-theme='dark'] {
-  --bg: #111c2e;
+  --bg: #17253a;
   --surface: #17253a;
   --card: #1c2d44;
   --text: #e0eafb;
@@ -32,6 +32,7 @@
 }
 body {
   margin: 0;
+  font: inherit;
   height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -51,6 +52,10 @@ select {
   background: var(--card);
   padding: 6px 10px;
   min-height: 32px;
+}
+button:not(#editor-slot button),
+select:not(#editor-slot select) {
+  min-height: 36px;
 }
 button {
   cursor: pointer;
@@ -89,14 +94,14 @@ select:focus-visible {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 22px;
+  padding: 10px 18px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
   flex-shrink: 0;
 }
 .brand {
   font:
-    600 15px Bahnschrift,
+    600 14px Bahnschrift,
     'Microsoft YaHei',
     sans-serif;
   letter-spacing: 1.5px;
@@ -124,7 +129,7 @@ select:focus-visible {
 .pathbar {
   display: flex;
   gap: 8px;
-  padding: 12px 22px;
+  padding: 10px 18px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
@@ -143,7 +148,7 @@ select:focus-visible {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding: 18px 12px;
+  padding: 14px 10px;
   border-right: 1px solid var(--line);
   background: var(--surface);
   overflow: auto;
@@ -216,16 +221,17 @@ select:focus-visible {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: radial-gradient(ellipse at 90% 0%, #8db7fa15, transparent 45%), var(--bg);
+  background: var(--surface);
 }
 .breadcrumbs {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  padding: 14px 22px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--line);
   font-family: Consolas, 'Microsoft YaHei', monospace;
+  font-size: 14px;
   overflow-wrap: anywhere;
   flex-shrink: 0;
   max-height: 130px;
@@ -239,6 +245,7 @@ select:focus-visible {
   border-radius: 4px;
 }
 .breadcrumbs span:last-child {
+  font-size: 19px;
   font-weight: 600;
   color: var(--blue);
 }
@@ -251,7 +258,7 @@ select:focus-visible {
 .directory-tools {
   display: flex;
   gap: 8px;
-  padding: 14px 22px;
+  padding: 12px 18px;
   flex-wrap: wrap;
 }
 .directory-tools input {
@@ -266,7 +273,7 @@ select:focus-visible {
   gap: 18px;
 }
 .list-heading {
-  padding: 9px 34px;
+  padding: 8px 30px;
   color: var(--muted);
   font-size: 11px;
   border-block: 1px solid var(--line);
@@ -276,10 +283,10 @@ select:focus-visible {
   overflow: auto;
   flex: 1;
   min-height: 0;
-  padding: 8px 22px;
+  padding: 6px 18px;
 }
 .entry {
-  min-height: 43px;
+  min-height: 52px;
   padding: 8px 12px;
   border-radius: 6px;
 }
@@ -293,12 +300,13 @@ select:focus-visible {
   min-width: 0;
 }
 .entry .filename {
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .entry .icon {
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1;
   color: var(--muted);
 }
@@ -322,7 +330,7 @@ select:focus-visible {
   gap: 5px;
   background: var(--card);
   border: 1px solid var(--line);
-  padding: 14px;
+  padding: 12px;
 }
 .entries[data-view='grid'] .name {
   max-width: 100%;
@@ -330,13 +338,13 @@ select:focus-visible {
   align-items: flex-start;
 }
 .entries[data-view='grid'] .icon {
-  font-size: 30px;
+  font-size: 28px;
 }
 .pagination {
   display: flex;
   gap: 9px;
   align-items: center;
-  padding: 10px 22px;
+  padding: 8px 18px;
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 12px;
@@ -464,7 +472,20 @@ dialog p {
   }
 }
 @media (max-width: 700px) {
+  .workspace {
+    flex-direction: column;
+  }
   .sidebar {
+    width: 100%;
+    max-height: 35%;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 9px;
+  }
+  .sidebar-heading {
+    padding-bottom: 4px;
+  }
+  .sidebar-foot {
     display: none;
   }
   .topbar {
@@ -473,6 +494,7 @@ dialog p {
   }
   .top-actions {
     flex-wrap: wrap;
+    min-width: 0;
   }
   .pathbar {
     padding: 8px;
@@ -506,6 +528,7 @@ dialog p {
   }
   .pagination {
     padding: 8px;
+    flex-wrap: wrap;
   }
   .brand {
     font-size: 11px;

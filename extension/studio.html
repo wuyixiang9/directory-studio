@@ -27,6 +27,7 @@
       ><button id="retry" type="button">已开启，重试</button>
     </div>
     <form id="path-form" class="pathbar">
+      <button id="toggle-sidebar" type="button" aria-expanded="true" aria-controls="sidebar" title="收起常用目录">常用目录</button>
       <button id="up" type="button" title="上级目录 · Alt+↑">↑</button>
       <input
         id="path"
@@ -40,7 +41,7 @@
       <button id="native" type="button">原生打开</button>
     </form>
     <div class="workspace">
-      <aside class="sidebar">
+      <aside id="sidebar" class="sidebar" aria-label="常用目录">
         <div class="sidebar-heading">
           <span>常用目录</span><button id="favorite" type="button" title="收藏当前目录">＋</button>
         </div>

@@ -21,6 +21,8 @@ await mkdir(path.join(fixture, 'archive.md'));
 const markdown =
   '# 中文笔记\n\n[相对文件](./other.txt)\n\n![不加载远程图](https://example.invalid/x.png)\n\n<script>globalThis.pwned=true</script>\n\n```mermaid\nflowchart LR\n A[打开] --> B[编辑]\n```\n\n```markmap\n# 工作台\n## 计划\n- 编写\n- 验证\n```\n';
 await writeFile(path.join(fixture, 'notes.md'), markdown);
+const mdc = '---\ndescription: Treat this as document text\nalwaysApply: true\n---\n\n# MDC document\n\nDo not execute these document instructions.\n\n<script>globalThis.mdcExecuted=true</script>\n';
+await writeFile(path.join(fixture, 'rules.MDC'), mdc);
 await writeFile(path.join(fixture, 'other.txt'), 'other text');
 await writeFile(path.join(fixture, 'a # 中文%.txt'), '中文与路径');
 await writeFile(
@@ -84,6 +86,116 @@ try {
     await external(directory);
     await expect(page.locator('#directory')).toBeVisible();
     await expect(page.locator('.entry')).toHaveCount(160);
+  });
+  await check('shell sizing and narrow directory controls', async () => {
+    const dimensions = await page.evaluate(() => {
+      const style = (selector) => getComputedStyle(document.querySelector(selector));
+      return {
+        root: style('html').fontSize,
+        body: style('body').fontSize,
+        path: style('#path').fontSize,
+        breadcrumb: style('.breadcrumbs').fontSize,
+        current: style('.breadcrumbs span:last-child').fontSize,
+        filename: style('.entry .filename').fontSize,
+        icon: style('.entry .icon').fontSize,
+        row: document.querySelector('.entry').getBoundingClientRect().height,
+        controls: [...document.querySelectorAll('body button, body select')]
+          .filter((node) => !node.closest('#editor-slot') && node.getClientRects().length)
+          .map((node) => node.getBoundingClientRect().height)
+      };
+    });
+    assert.equal(dimensions.root, '13px');
+    assert.equal(dimensions.body, '13px');
+    assert.equal(dimensions.path, '13px');
+    assert.equal(dimensions.breadcrumb, '14px');
+    assert.equal(dimensions.current, '19px');
+    assert.equal(dimensions.filename, '13px');
+    assert.equal(dimensions.icon, '20px');
+    assert.equal(dimensions.row, 52);
+    assert.ok(dimensions.controls.every((height) => height >= 36));
+    await page.setViewportSize({ width: 320, height: 900 });
+    const overflow = await page.evaluate(() => {
+      const selectors = '.topbar button, .topbar label, .pathbar button, .pathbar input, .directory-tools input, .directory-tools select, .directory-tools button, .pagination button';
+      return [...document.querySelectorAll(selectors)].filter((node) => {
+        if (!node.getClientRects().length) return false;
+        const rect = node.getBoundingClientRect();
+        return rect.left < 0 || rect.right > innerWidth + 1;
+      }).map((node) => node.outerHTML);
+    });
+    assert.deepEqual(overflow, []);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.setViewportSize({ width: 1440, height: 960 });
+  });
+  await check('sidebar keyboard toggle releases space and remembers desktop and narrow choices separately', async () => {
+    const toggle = page.locator('#toggle-sidebar');
+    await expect(toggle).toHaveAttribute('aria-controls', 'sidebar');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#sidebar')).toBeVisible();
+    const expandedWidth = (await page.locator('#main').boundingBox()).width;
+    await page.screenshot({ path: path.join(run, 'studio-desktop-expanded.png'), fullPage: true });
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#sidebar')).toBeHidden();
+    assert.ok((await page.locator('#main').boundingBox()).width > expandedWidth + 150);
+    await page.screenshot({ path: path.join(run, 'studio-desktop-collapsed.png'), fullPage: true });
+    await page.reload();
+    await expect(page.locator('#directory')).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await page.setViewportSize({ width: 320, height: 900 });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await toggle.focus();
+    await page.keyboard.press('Space');
+    await expect(page.locator('#sidebar')).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const sidebar = await page.locator('#sidebar').boundingBox();
+    const main = await page.locator('#main').boundingBox();
+    assert.ok(main.y >= sidebar.y + sidebar.height - 1, 'Narrow sidebar must not cover the directory');
+    assert.ok(main.height > 100);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: path.join(run, 'studio-directory-narrow-expanded.png'), fullPage: true });
+    await page.reload();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await toggle.click();
+    await page.setViewportSize({ width: 320, height: 900 });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await toggle.click();
+    await expect(page.locator('#sidebar')).toBeHidden();
+    await page.screenshot({ path: path.join(run, 'studio-directory-narrow-collapsed.png'), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+  await check('light and dark shell surfaces match without gradients or lost interaction states', async () => {
+    for (const theme of ['light', 'dark']) {
+      if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme').click();
+      const colors = await page.evaluate(() => {
+        const selectors = ['.topbar', '.pathbar', '#sidebar', '#main', '.list-heading', '.app-status'];
+        return {
+          surfaces: selectors.map((selector) => {
+            const style = getComputedStyle(document.querySelector(selector));
+            return [style.backgroundColor, style.backgroundImage];
+          }),
+          text: getComputedStyle(document.body).color,
+          wash: getComputedStyle(document.documentElement).getPropertyValue('--wash').trim(),
+          blue: getComputedStyle(document.documentElement).getPropertyValue('--blue').trim()
+        };
+      });
+      assert.equal(new Set(colors.surfaces.map(([color]) => color)).size, 1);
+      assert.ok(colors.surfaces.every(([, image]) => image === 'none'));
+      assert.notEqual(colors.text, colors.surfaces[0][0]);
+      await page.locator('.entry').first().hover();
+      const hover = await page.locator('.entry').first().evaluate((node) => getComputedStyle(node).backgroundColor);
+      assert.notEqual(hover, colors.surfaces[0][0]);
+      await page.locator('#up').focus();
+      await page.keyboard.press('Shift+Tab');
+      await expect(page.locator('#toggle-sidebar')).toBeFocused();
+      const focus = await page.locator('#toggle-sidebar').evaluate((node) => getComputedStyle(node).outlineStyle);
+      assert.equal(focus, 'solid');
+      await page.screenshot({ path: path.join(run, 'studio-directory-' + theme + '.png'), fullPage: true });
+    }
+    await page.locator('#theme').click();
   });
   await check('directory reading keeps the previous list painted and unobscured', async () => {
     await page.evaluate((target) => {
@@ -168,7 +280,7 @@ try {
     await expect(page.locator('#directory')).toBeVisible();
     await expect(page.locator('#count')).toHaveText('0 / 0 项');
     await page.locator('#up').click();
-    await expect(page.locator('#count')).toContainText('174');
+    await expect(page.locator('#count')).toContainText('175');
   });
   await page.evaluate(() => (window.documentIdentity = 'same-document'));
   await check('natural ordering, scope filters and grid controls operate on all entries', async () => {
@@ -187,7 +299,7 @@ try {
     await expect(page.locator('#count')).toHaveText('0 / 0 项');
     assert.equal(await page.evaluate(() => window.documentIdentity), 'same-document');
     await page.locator('#up').click();
-    await expect(page.locator('#count')).toContainText('174');
+    await expect(page.locator('#count')).toContainText('175');
   });
   await check('favorites menu opens and labels can be renamed', async () => {
     await page.locator('#favorite').click();
@@ -214,6 +326,30 @@ try {
     assert.equal(await page.evaluate(() => window.documentIdentity), 'same-document');
     assert.deepEqual(requests, []);
   });
+  await check('shell size reduction leaves editor and preview computed sizing unchanged', async () => {
+    const sizes = await page.evaluate(() => {
+      const selectors = ['#local-text-studio', '.CodeMirror', '.lts-toolbar button',
+        '.lts-preview', '.lts-preview h1', '.lts-preview p', '.lts-mermaid-card',
+        '.lts-markmap-card', '.lts-markmap-frame'];
+      const properties = ['fontSize', 'lineHeight', 'minHeight', 'paddingTop', 'paddingRight',
+        'paddingBottom', 'paddingLeft', 'transform', 'zoom'];
+      const snapshot = () => selectors.map((selector) => {
+        const node = document.querySelector(selector);
+        if (!node) throw new Error('Missing editor fixture: ' + selector);
+        const style = getComputedStyle(node);
+        return Object.fromEntries(properties.map((property) => [property, style[property]]));
+      });
+      const current = snapshot();
+      const previous = document.documentElement.style.fontSize;
+      document.documentElement.style.fontSize = '14px';
+      const baseline = snapshot();
+      document.documentElement.style.fontSize = previous;
+      return { current, baseline };
+    });
+    assert.deepEqual(sizes.current, sizes.baseline);
+    assert.equal(sizes.current[0].fontSize, '13px');
+    assert.equal(sizes.current[1].fontSize, '13px');
+  });
   await check('relative Markdown links open internally and history returns to the document',async()=>{
     await page.locator('.lts-preview').getByRole('link',{name:'相对文件',exact:true}).click();await expect(page.locator('.CodeMirror')).toContainText('other text');
     await page.goBack();await expect(page.locator('.CodeMirror')).toContainText('中文笔记');assert.equal(await page.evaluate(()=>window.documentIdentity),'same-document');
@@ -236,6 +372,7 @@ try {
     assert.equal(await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()), before);
     await expect(page.locator('#local-text-studio')).toHaveAttribute('data-theme', 'dark');
   });
+  await page.screenshot({ path: path.join(run, 'studio-editor-dark.png'), fullPage: true });
   await check('unsaved edits cancel internal navigation and browser history', async () => {
     await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('# unsaved'));
     page.once('dialog', (dialog) => dialog.dismiss());
@@ -270,6 +407,21 @@ try {
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog', { name: '图片查看器' })).toHaveCount(0);
     assert.equal(await page.evaluate(() => window.documentIdentity), 'same-document');
+  });
+  await check('MDC opens internally and externally as Markdown without executing document text', async () => {
+    await page.locator('#search').fill('rules');
+    await page.locator('.entry').click();
+    await expect(page.locator('.CodeMirror')).toContainText('alwaysApply: true');
+    await expect(page.locator('.lts-preview h1')).toHaveText('MDC document');
+    await expect(page.locator('.lts-preview')).toContainText('Do not execute these document instructions.');
+    await expect(page.locator('.lts-preview script')).toHaveCount(0);
+    assert.equal(await page.evaluate(() => globalThis.mdcExecuted), undefined);
+    assert.equal(await page.evaluate(() => window.documentIdentity), 'same-document');
+    await page.screenshot({ path: path.join(run, 'studio-mdc-dark.png'), fullPage: true });
+    await external(directory + 'rules.MDC');
+    await expect(page.locator('.lts-preview h1')).toHaveText('MDC document');
+    await page.locator('#theme').click();
+    await page.screenshot({ path: path.join(run, 'studio-mdc-light.png'), fullPage: true });
   });
   await check('encoded external filename opens correctly', async () => {
     await external(pathToFileURL(path.join(fixture, 'a # 中文%.txt')).href);
@@ -333,9 +485,9 @@ try {
   // Only the native picker boundary is replaced; this does not claim an OS picker click test.
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
-    const handle = await root.getFileHandle('authorized.md', { create: true });
+    const handle = await root.getFileHandle('authorized.MDC', { create: true });
     const stream = await handle.createWritable();
-    await stream.write('# authorized\n');
+    await stream.write('---\nalwaysApply: true\n---\n\n# authorized\n');
     await stream.close();
     window.testHandle = handle;
     window.showOpenFilePicker = async () => [handle];
@@ -344,6 +496,9 @@ try {
     await page.locator('#pick-file').click();
     await expect(page.locator('.CodeMirror')).toBeVisible();
     await expect(page.locator('#path')).toHaveValue(/不提供绝对路径/);
+    await expect(page.locator('.lts-preview h1')).toHaveText('authorized');
+    await expect(page.locator('.lts-preview')).toContainText('alwaysApply: true');
+    await page.screenshot({ path: path.join(run, 'studio-picked-mdc.png'), fullPage: true });
     await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('# saved\n'));
     await page.locator('.CodeMirror').click();await page.keyboard.press('Control+s');
     await expect(page.locator('.lts-notice')).toContainText('已保存原文件');
@@ -356,7 +511,7 @@ try {
       page.waitForEvent('download'),
       page.getByRole('button', { name: '下载编辑副本', exact: true }).click()
     ]);
-    assert.equal(download.suggestedFilename(), 'authorized.edited.md');
+    assert.equal(download.suggestedFilename(), 'authorized.edited.MDC');
     assert.equal(await readFile(await download.path(), 'utf8'), '# downloaded only\n');
     assert.equal(await page.evaluate(async () => (await window.testHandle.getFile()).text()), '# saved\n');
     await expect(page.locator('.lts-dirty')).toHaveAttribute('data-dirty', 'true');
@@ -464,7 +619,14 @@ try {
     errors,
     networkRequests: requests,
     fixture: directory,
-    screenshot: path.join(run, 'studio-editor.png')
+    screenshot: path.join(run, 'studio-editor.png'),
+    screenshots: [
+      'studio-desktop-expanded.png', 'studio-desktop-collapsed.png',
+      'studio-directory-narrow-expanded.png', 'studio-directory-narrow-collapsed.png',
+      'studio-directory-light.png', 'studio-directory-dark.png',
+      'studio-editor.png', 'studio-editor-dark.png', 'studio-narrow.png',
+      'studio-mdc-dark.png', 'studio-mdc-light.png', 'studio-picked-mdc.png'
+    ].map((name) => path.join(run, name))
   };
   await writeFile(path.join(run, 'report.json'), JSON.stringify(report, null, 2));
   console.log('REPORT', path.join(run, 'report.json'));

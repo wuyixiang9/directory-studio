@@ -8,6 +8,12 @@ test('external local paths normalize without mistaking HTML or remote pages for 
   assert.equal(fileKind('file:///D:/a/'), 'directory');
   assert.equal(fileKind('file:///D:/a.MD#x'), 'text');
   assert.equal(fileKind('file:///D:/a%2Emd'), 'text');
+  for (const name of ['rules.mdc', 'rules.MDC', 'rules.MdC', 'rules%2Emdc'])
+    assert.equal(fileKind('file:///D:/' + name), 'text');
+  const mdcEntries = parseDirectory(
+    listing([['rules.MDC', 'rules.MDC', 0, 30, '30 B', 0, '']]), 'file:///D:/notes/'
+  );
+  assert.equal(fileKind(mdcEntries[0].href), 'text');
   assert.equal(fileKind('file:///D:/log'), null);
   assert.equal(fileKind('file:///D:/a.svg'), 'image');
   for (const ext of ['html', 'htm', 'pdf', 'exe', 'zip']) assert.equal(fileKind('file:///D:/a.' + ext), null);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { persistDocument } from '../extension/files.js';
+import { persistDocument, readLocal } from '../extension/files.js';
 
 test('first save requests write permission before slow reads or confirmation can consume activation', async () => {
   const bytes = new TextEncoder().encode('original');
@@ -22,4 +22,21 @@ test('first save requests write permission before slow reads or confirmation can
     assert.equal(new TextDecoder().decode(output), 'saved');
     assert.equal(document.handle, handle);
   } finally { delete globalThis.showOpenFilePicker; delete globalThis.confirm; }
+});
+
+test('MDC local reads preserve frontmatter and body as UTF-8 text', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalChrome = globalThis.chrome;
+  const text = '---\nalwaysApply: true\n---\n\n# Rules\n';
+  globalThis.chrome = { extension: { isAllowedFileSchemeAccess: async () => true } };
+  globalThis.fetch = async () => new Response(text);
+  try {
+    const result = await readLocal('file:///D:/rules.MDC');
+    assert.equal(result.kind, 'text');
+    assert.equal(result.text, text);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalChrome === undefined) delete globalThis.chrome;
+    else globalThis.chrome = originalChrome;
+  }
 });

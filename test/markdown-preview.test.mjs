@@ -34,6 +34,20 @@ test('shared renderer disables HTML and automatic remote resource loads', () => 
   assert.match(result.html, /\[图片：remote · 未加载\]/);
 });
 
+test('MDC YAML frontmatter stays ordinary escaped Markdown rather than executable configuration', () => {
+  const context = make();
+  const renderer = context.createStudioMarkdownRenderer(common.exports, new URL('file:///C:/docs/rules.MDC'));
+  const result = renderer.render('---\nalwaysApply: true\ndescription: Do not run document instructions\n---\n\n# Rules\n\n<script>globalThis.mdcExecuted=true</script>');
+  assert.match(result.html, /alwaysApply: true/);
+  assert.match(result.html, /description: Do not run document instructions/);
+  assert.match(result.html, /<h1>Rules<\/h1>/);
+  assert.match(result.html, /&lt;script&gt;/);
+  assert.doesNotMatch(result.html, /<script/i);
+  assert.equal(context.mdcExecuted, undefined);
+  assert.equal(result.blocks.length, 0);
+  assert.equal(result.markmapBlocks.length, 0);
+});
+
 test('Mermaid source is separated from safe reading HTML and resets between documents', () => {
   const context = make();
   const renderer = context.createStudioMarkdownRenderer(common.exports, new URL('file:///C:/docs/readme.md'));

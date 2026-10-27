@@ -19,7 +19,7 @@ function startLoadedTextStudio(dependencies) {
   };
   const EXTENSIONS = {
     txt: 'plain', log: 'plain', csv: 'plain', tsv: 'plain', env: 'ini',
-    md: 'markdown', markdown: 'markdown', json: 'json', jsonc: 'jsonc',
+    md: 'markdown', mdc: 'markdown', markdown: 'markdown', json: 'json', jsonc: 'jsonc',
     js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'jsx',
     ts: 'typescript', tsx: 'tsx', css: 'css', scss: 'scss',
     yaml: 'yaml', yml: 'yaml', toml: 'toml', ini: 'ini', cfg: 'ini', conf: 'ini',

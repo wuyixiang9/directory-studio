@@ -52,6 +52,7 @@ test('extension builds reproducibly with local scripts, sandboxed diagrams and l
       }
     }
     assert.doesNotMatch(await readFile(path.join(one, 'editor.js'), 'utf8'), /new Function\s*\(|\beval\s*\(/);
+    assert.match(await readFile(path.join(one, 'editor.js'), 'utf8'), /mdc: 'markdown'/);
     for (const icon of Object.values(manifest.icons)) {
       const data = await readFile(path.join(one, icon));
       assert.equal(data.readUInt32BE(0), 0x89504e47);

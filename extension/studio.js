@@ -45,6 +45,18 @@ preferences.set = ((original) =>
     original.call(this, key, value);
   })(preferences.set);
 window.studioPreferences = preferences;
+// Remember each layout independently; resizing restores that layout's choice without overwriting it.
+const narrowSidebar = window.matchMedia('(max-width: 700px)');
+const sidebarPreference = () =>
+  narrowSidebar.matches ? 'extension.sidebarNarrowCollapsed' : 'extension.sidebarCollapsed';
+function applySidebar() {
+  const collapsed = preferences.get(sidebarPreference(), narrowSidebar.matches) === true;
+  if (collapsed && $('sidebar').contains(document.activeElement)) $('toggle-sidebar').focus();
+  $('sidebar').hidden = collapsed;
+  $('toggle-sidebar').setAttribute('aria-expanded', String(!collapsed));
+  $('toggle-sidebar').title = collapsed ? '展开常用目录' : '收起常用目录';
+  menu.close();
+}
 const state = {
   href: '',
   directory: '',
@@ -415,6 +427,12 @@ async function nativeOpen(href = state.href || validTarget(fromHash())) {
     status(error.message);
   }
 }
+$('toggle-sidebar').addEventListener('click', () => {
+  preferences.set(sidebarPreference(), !$('sidebar').hidden);
+  applySidebar();
+});
+narrowSidebar.addEventListener('change', applySidebar);
+applySidebar();
 $('path-form').addEventListener('submit', (event) => {
   event.preventDefault();
   void navigate($('path').value);

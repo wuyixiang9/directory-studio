@@ -1,6 +1,6 @@
 export const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 export const TEXT_EXTENSIONS = new Set(
-  'txt log csv tsv env md markdown json jsonc js mjs cjs jsx ts tsx css scss yaml yml toml ini cfg conf properties py pyw rs go c h cpp hpp cc cxx hxx java cs sh bash zsh ps1 psm1 psd1 sql bat cmd xml'.split(
+  'txt log csv tsv env md mdc markdown json jsonc js mjs cjs jsx ts tsx css scss yaml yml toml ini cfg conf properties py pyw rs go c h cpp hpp cc cxx hxx java cs sh bash zsh ps1 psm1 psd1 sql bat cmd xml'.split(
     ' '
   )
 );

@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
 let settings = {},
   session = {},
   tab = { id: 2, url: 'file:///D:/notes/a.md' },
@@ -81,4 +83,24 @@ test('a newer unsupported navigation cancels a waiting file takeover', async () 
   assert.equal(await pending, false);
   assert.equal(updates.length, 0);
   chrome.storage.local.get = original;
+});
+
+test('MDC navigation and content bridge use the same case-insensitive text route', async () => {
+  for (const extension of ['mdc', 'MDC', 'MdC']) {
+    reset();
+    tab.url = 'file:///D:/notes/rules.' + extension;
+    assert.equal(await redirect(2, tab.url), true);
+    assert.equal(updates[0][1].url, 'chrome-extension://test/studio.html#' + encodeURIComponent(tab.url));
+    const messages = [];
+    const window = {};
+    window.top = window.self = window;
+    vm.runInNewContext(await readFile(new URL('../extension/bridge.js', import.meta.url), 'utf8'), {
+      window,
+      location: new URL(tab.url),
+      chrome: { runtime: { sendMessage: async (message) => messages.push(message) } }
+    });
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].type, 'capture');
+    assert.equal(messages[0].href, tab.url);
+  }
 });
