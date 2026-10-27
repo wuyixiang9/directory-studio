@@ -1,7 +1,9 @@
 import { localURL, fileKind } from './model.js';
+import { createRecentExternalRecorder } from './recent-files.js';
 
 // All listeners are registered synchronously so MV3 can wake a stopped worker.
 const tabJobs = new Map();
+const recordRecentExternal = createRecentExternalRecorder(chrome.storage.local);
 export async function redirect(tabId, input) {
   if (!Number.isInteger(tabId) || tabId < 0) return false;
   const href = localURL(input);
@@ -31,6 +33,7 @@ export async function redirect(tabId, input) {
     await chrome.tabs.update(tabId, {
       url: chrome.runtime.getURL('studio.html') + '#' + encodeURIComponent(href)
     });
+    await recordRecentExternal(href);
     return true;
   } catch {
     return false;

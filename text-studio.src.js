@@ -1,3 +1,7 @@
+function normalizeLocalTextStudioTheme(value) {
+  return ['light', 'dark', 'economist', 'vercel'].includes(value) ? value : 'light';
+}
+
 function startLoadedTextStudio(dependencies) {
   'use strict';
   // The extension supplies already-read UTF-8 text and owns navigation and disk writes.
@@ -108,7 +112,9 @@ function startLoadedTextStudio(dependencies) {
     documentStyle.id = 'local-text-studio-document-style';
     documentStyle.textContent = '[data-local-text-studio-native="hidden"]{display:none!important}' +
       'html[data-local-text-studio-theme="light"],html[data-local-text-studio-theme="light"] body{background:#edf3fb!important;color-scheme:light!important}' +
-      'html[data-local-text-studio-theme="dark"],html[data-local-text-studio-theme="dark"] body{background:#111c2e!important;color-scheme:dark!important}';
+      'html[data-local-text-studio-theme="dark"],html[data-local-text-studio-theme="dark"] body{background:#111c2e!important;color-scheme:dark!important}' +
+      'html[data-local-text-studio-theme="economist"],html[data-local-text-studio-theme="economist"] body{background:#f6f3ed!important;color-scheme:light!important}' +
+      'html[data-local-text-studio-theme="vercel"],html[data-local-text-studio-theme="vercel"] body{background:#fff!important;color-scheme:light!important}';
     function restoreNative() {
       documentStyle.disabled = true;
       for (const [node, value] of previousNative) {
@@ -136,7 +142,7 @@ function startLoadedTextStudio(dependencies) {
         memory[key] = value;
         try { if (typeof GM_setValue === 'function') GM_setValue('directory-studio.' + key, value); } catch (_) { /* Never store file contents. */ }
       };
-      let theme = read('theme', 'light') === 'dark' ? 'dark' : 'light';
+      let theme = normalizeLocalTextStudioTheme(read('theme', 'light'));
       let wrap = read('editor.wrap', false) === true;
       let selectedMode = 'auto';
       let activeMode = EXTENSIONS[extension];
@@ -173,6 +179,11 @@ function startLoadedTextStudio(dependencies) {
       style.textContent = dependencies.css + `
 #local-text-studio{--bg:#edf3fb;--surface:#fbfdff;--card:#fff;--text:#182b49;--muted:#6c7e97;--line:#dbe5f1;--blue:#2563eb;--wash:#eaf1ff;--keyword:#3153bb;--string:#16776e;--number:#9b6517;--comment:#75849b;--tag:#a13e70;position:fixed;inset:0;z-index:1;height:100vh;height:100dvh;color:var(--text);background:radial-gradient(ellipse at 90% 0%,#8db7fa24,transparent 48%),var(--bg);font:13px/1.5 'Segoe UI Variable','Microsoft YaHei','Segoe UI',sans-serif;color-scheme:light;isolation:isolate}
 #local-text-studio[data-theme=dark]{--bg:#111c2e;--surface:#17253a;--card:#1c2d44;--text:#e0eafb;--muted:#9bb0cc;--line:#30435d;--blue:#8cb4ff;--wash:#253b5d;--keyword:#9ebdff;--string:#83cfbb;--number:#e5b778;--comment:#95a5be;--tag:#e0a1c7;color-scheme:dark}
+#local-text-studio[data-theme=economist]{--bg:#f6f3ed;--surface:#f6f3ed;--card:#fffdf8;--text:#262626;--muted:#68635c;--line:#d5d0c7;--blue:#e3120b;--wash:#f8e5df;--keyword:#a50e09;--string:#426549;--number:#86551e;--comment:#716b62;--tag:#8c3842;background:var(--bg);color-scheme:light}
+#local-text-studio[data-theme=economist] .CodeMirror-focused .CodeMirror-selected,#local-text-studio[data-theme=economist] .CodeMirror-line::selection,#local-text-studio[data-theme=economist] .CodeMirror-line span::selection{background:#e3120b26}
+#local-text-studio[data-theme=economist] .lts-preview a{color:#b6100a}
+#local-text-studio[data-theme=vercel]{--bg:#fff;--surface:#fff;--card:#fafafa;--text:#171717;--muted:#666;--line:#eaeaea;--blue:#171717;--wash:#f2f2f2;background:var(--bg);color-scheme:light}
+#local-text-studio[data-theme=vercel] .CodeMirror-focused .CodeMirror-selected,#local-text-studio[data-theme=vercel] .CodeMirror-line::selection,#local-text-studio[data-theme=vercel] .CodeMirror-line span::selection{background:#00000020}
 #local-text-studio .lts-app{height:100%;display:flex;flex-direction:column;min-height:0}#local-text-studio .lts-header,#local-text-studio .lts-heading,#local-text-studio .lts-toolbar,#local-text-studio .lts-status{box-sizing:border-box}#local-text-studio button,#local-text-studio input,#local-text-studio select{font:inherit}#local-text-studio a{color:inherit;text-decoration:none}#local-text-studio button{cursor:pointer;color:inherit}#local-text-studio button:disabled{opacity:.4;cursor:default}#local-text-studio button:focus-visible,#local-text-studio a:focus-visible,#local-text-studio input:focus-visible,#local-text-studio select:focus-visible{outline:3px solid var(--blue);outline-offset:2px}#local-text-studio [hidden]{display:none!important}
 #local-text-studio .lts-header{height:58px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 24px;border-bottom:1px solid var(--line)}#local-text-studio .lts-brand{font:600 15px Bahnschrift,'Microsoft YaHei',sans-serif;letter-spacing:1.8px;white-space:nowrap}#local-text-studio .lts-brand:before{content:'';display:inline-block;width:8px;height:18px;background:var(--blue);border-radius:3px;margin-right:10px;vertical-align:-3px}#local-text-studio .lts-header-actions{display:flex;align-items:center;gap:7px}#local-text-studio .lts-local{font-size:11px;color:var(--muted);margin-right:9px}#local-text-studio .lts-button{border:1px solid var(--line);border-radius:7px;padding:7px 10px;min-height:34px;background:var(--card);white-space:nowrap;box-sizing:border-box}#local-text-studio .lts-button:hover:not(:disabled){background:var(--wash);border-color:var(--blue)}#local-text-studio .lts-button[aria-pressed=true]{background:var(--wash);color:var(--blue);border-color:var(--blue)}#local-text-studio .lts-primary{background:var(--blue);border-color:var(--blue);color:var(--card)}
 #local-text-studio .lts-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 24px 13px;flex-shrink:0}#local-text-studio .lts-path{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0;font:14px/1.7 Consolas,'Microsoft YaHei',monospace;color:var(--muted);overflow-wrap:anywhere}#local-text-studio .lts-path a{padding:2px 5px;border-radius:5px;max-width:100%;min-width:0;overflow-wrap:anywhere}#local-text-studio .lts-path a:hover{color:var(--blue);background:var(--wash)}#local-text-studio .lts-path [aria-current=page]{font:600 20px/1.5 Bahnschrift,'Microsoft YaHei',sans-serif;color:var(--blue);background:var(--wash);border:1px solid var(--line);border-radius:8px;padding:4px 10px;max-width:100%;min-width:0;overflow-wrap:anywhere}#local-text-studio .lts-separator{color:var(--muted);opacity:.7;padding:0 2px}#local-text-studio .lts-parent{flex-shrink:0}
@@ -366,10 +377,12 @@ function startLoadedTextStudio(dependencies) {
           // Only the shared escaped, resource-free renderer may produce preview HTML.
           preview.innerHTML = rendered.html;
           const generation = previewGeneration;
+          // Diagram sandboxes retain their existing light/dark protocol.
+          const diagramTheme = theme === 'dark' ? 'dark' : 'light';
           if (rendered.blocks.length || rendered.markmapBlocks.length) cancelDiagrams = scheduleStudioDiagramRender(() => {
             if (generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit') {
-              mermaidPreview.render(rendered.blocks, theme, () => generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit').catch(() => {});
-              if (rendered.markmapBlocks.length) markmapPreview.render(rendered.markmapBlocks, theme, () => generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit').catch(() => {});
+              mermaidPreview.render(rendered.blocks, diagramTheme, () => generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit').catch(() => {});
+              if (rendered.markmapBlocks.length) markmapPreview.render(rendered.markmapBlocks, diagramTheme, () => generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit').catch(() => {});
             }
           });
         } catch (_) { preview.textContent = '预览失败。原始编辑内容未改动，可继续编辑或下载副本。'; }
@@ -562,7 +575,7 @@ function startLoadedTextStudio(dependencies) {
       if (adapter) adapter.ready({
         getValue: () => cm.getValue(), isDirty: () => cm.getValue() !== baseline,
         isSaving: () => saving,
-        setTheme(value) { theme = value === 'dark' ? 'dark' : 'light'; applyTheme(); renderPreview(); },
+        setTheme(value) { theme = normalizeLocalTextStudioTheme(value); applyTheme(); renderPreview(); },
         dispose() { if (disposed) return; disposed = true; rollback(); delete document[TOKEN]; }
       });
     } catch (error) {

@@ -11,7 +11,10 @@ const event = () => ({ addListener() {} });
 globalThis.chrome = {
   extension: { isAllowedFileSchemeAccess: async () => allowed },
   storage: {
-    local: { get: async () => settings },
+    local: {
+      get: async () => settings,
+      set: async (value) => Object.assign(settings, value)
+    },
     session: {
       get: async (key) => ({ [key]: session[key] }),
       set: async (value) => Object.assign(session, value),
@@ -42,6 +45,7 @@ test('capture only redirects supported current file paths', async () => {
   reset();
   assert.equal(await redirect(2, tab.url), true);
   assert.match(updates[0][1].url, /studio\.html#file/);
+  assert.deepEqual(settings.recentExternalFiles, [tab.url]);
   for (const url of ['https://example/a.md', 'file:///D:/a.html', 'file:///D:/a.pdf'])
     assert.equal(await redirect(2, url), false);
   assert.equal(updates.length, 1);
@@ -57,6 +61,7 @@ test('disabled access, pause and native bypass leave the native navigation intac
   session['native.2'] = { href: tab.url, expires: Date.now() + 10000 };
   assert.equal(await redirect(2, tab.url), false);
   assert.equal(updates.length, 0);
+  assert.equal(settings.recentExternalFiles, undefined);
 });
 test('stale navigation cannot replace a newer destination and pending URL wins', async () => {
   reset();
@@ -71,6 +76,44 @@ test('overlapping navigation notifications update a tab only once', async () => 
   const results = await Promise.all([redirect(2, tab.url), redirect(2, tab.url), redirect(2, tab.url)]);
   assert.equal(results.filter(Boolean).length, 1);
   assert.equal(updates.length, 1);
+});
+test('only successful external text and image takeovers enter recents, not directories or failures', async () => {
+  reset();
+  tab.url = 'file:///D:/notes/';
+  assert.equal(await redirect(2, tab.url), true);
+  assert.equal(settings.recentExternalFiles, undefined);
+  tab.url = 'file:///D:/notes/picture.png';
+  assert.equal(await redirect(2, tab.url), true);
+  assert.deepEqual(settings.recentExternalFiles, [tab.url]);
+  const update = chrome.tabs.update;
+  try {
+    chrome.tabs.update = async () => { throw Error('Tab closed'); };
+    tab.url = 'file:///D:/notes/failed.md';
+    assert.equal(await redirect(2, tab.url), false);
+    assert.deepEqual(settings.recentExternalFiles, ['file:///D:/notes/picture.png']);
+  } finally {
+    chrome.tabs.update = update;
+  }
+});
+
+test('concurrent successful tabs record independently and a storage failure cannot fail the redirect', async () => {
+  reset();
+  const getTab = chrome.tabs.get;
+  const setStorage = chrome.storage.local.set;
+  try {
+    chrome.tabs.get = async (id) => ({ id, url: `file:///D:/notes/${id}.md` });
+    const results = await Promise.all([redirect(3, 'file:///D:/notes/3.md'), redirect(4, 'file:///D:/notes/4.md')]);
+    assert.deepEqual(results, [true, true]);
+    assert.deepEqual(settings.recentExternalFiles, ['file:///D:/notes/4.md', 'file:///D:/notes/3.md']);
+    chrome.storage.local.set = async () => { throw Error('Storage unavailable'); };
+    assert.equal(await redirect(5, 'file:///D:/notes/5.md'), true);
+    chrome.storage.local.set = setStorage;
+    assert.equal(await redirect(6, 'file:///D:/notes/6.md'), true);
+    assert.deepEqual(settings.recentExternalFiles, ['file:///D:/notes/6.md', 'file:///D:/notes/4.md', 'file:///D:/notes/3.md']);
+  } finally {
+    chrome.tabs.get = getTab;
+    chrome.storage.local.set = setStorage;
+  }
 });
 test('a newer unsupported navigation cancels a waiting file takeover', async () => {
   reset();

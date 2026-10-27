@@ -15,6 +15,8 @@ for (const name of [
   'background.js',
   'bridge.js',
   'model.js',
+  'recent-files.js',
+  'navigation.js',
   'studio.html',
   'studio.css',
   'studio.js',

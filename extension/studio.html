@@ -17,7 +17,12 @@
       <span class="badge">本地 · 离线</span>
       <div class="top-actions">
         <label class="capture"><input id="capture" type="checkbox" checked /> 自动接管 file 路径</label>
-        <button id="theme" type="button">切换主题</button>
+        <select id="theme" aria-label="主题">
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+          <option value="economist">经济学人</option>
+          <option value="vercel">Vercel</option>
+        </select>
         <button id="help" type="button">使用说明</button>
       </div>
     </header>
@@ -46,6 +51,10 @@
           <span>常用目录</span><button id="favorite" type="button" title="收藏当前目录">＋</button>
         </div>
         <nav id="favorites" aria-label="收藏目录"></nav>
+        <section class="recent-section" aria-labelledby="recent-heading">
+          <div id="recent-heading" class="sidebar-heading">最近打开的文件</div>
+          <nav id="recent-files" aria-label="最近打开的文件"></nav>
+        </section>
         <div class="sidebar-foot">直接保存需要单独授权。<br />文件正文只在当前页面内处理。</div>
       </aside>
       <main id="main">

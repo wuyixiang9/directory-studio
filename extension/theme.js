@@ -7,7 +7,9 @@
     /* Use OS preference. */
   }
   document.documentElement.dataset.theme =
-    theme === 'dark' || (theme !== 'light' && matchMedia('(prefers-color-scheme:dark)').matches)
-      ? 'dark'
-      : 'light';
+    ['light', 'dark', 'economist', 'vercel'].includes(theme)
+      ? theme
+      : matchMedia('(prefers-color-scheme:dark)').matches
+        ? 'dark'
+        : 'light';
 })();

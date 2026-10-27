@@ -75,6 +75,18 @@ try {
   await check('extension loads with native file access', async () =>
     assert.equal(await page.evaluate(() => chrome.extension.isAllowedFileSchemeAccess()), true)
   );
+  await check('theme selector persists all palettes across reloads', async () => {
+    await expect(page.getByRole('combobox', { name: '主题', exact: true })).toBeVisible();
+    assert.deepEqual(await page.locator('#theme option').evaluateAll((options) => options.map((option) => option.value)), ['light', 'dark', 'economist', 'vercel']);
+    for (const theme of ['dark', 'economist', 'vercel', 'light']) {
+      await page.locator('#theme').selectOption(theme);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      assert.equal(await page.evaluate(() => localStorage.getItem('directory-studio.theme')), theme);
+      await page.reload();
+      await expect(page.locator('#theme')).toHaveValue(theme);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    }
+  });
   async function external(href, expected = href) {
     await page.goto(href).catch((error) => {
       if (!/interrupted|ERR_ABORTED/.test(error.message)) throw error;
@@ -115,7 +127,7 @@ try {
     assert.ok(dimensions.controls.every((height) => height >= 36));
     await page.setViewportSize({ width: 320, height: 900 });
     const overflow = await page.evaluate(() => {
-      const selectors = '.topbar button, .topbar label, .pathbar button, .pathbar input, .directory-tools input, .directory-tools select, .directory-tools button, .pagination button';
+      const selectors = '.topbar button, .topbar select, .topbar label, .pathbar button, .pathbar input, .directory-tools input, .directory-tools select, .directory-tools button, .pagination button';
       return [...document.querySelectorAll(selectors)].filter((node) => {
         if (!node.getClientRects().length) return false;
         const rect = node.getBoundingClientRect();
@@ -167,9 +179,16 @@ try {
     await page.setViewportSize({ width: 1440, height: 960 });
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   });
-  await check('light and dark shell surfaces match without gradients or lost interaction states', async () => {
-    for (const theme of ['light', 'dark']) {
-      if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme').click();
+  await check('all shell palettes match without gradients, resizing or lost interaction states', async () => {
+    let baseline;
+    for (const theme of ['light', 'dark', 'economist', 'vercel']) {
+      await page.locator('#theme').selectOption(theme);
+      const dimensions = await page.locator('.topbar, .pathbar, #theme, .entry').evaluateAll((nodes) => nodes.map((node) => {
+        const { x, y, width, height } = node.getBoundingClientRect();
+        return { x, y, width, height };
+      }));
+      baseline ??= dimensions;
+      assert.deepEqual(dimensions, baseline);
       const colors = await page.evaluate(() => {
         const selectors = ['.topbar', '.pathbar', '#sidebar', '#main', '.list-heading', '.app-status'];
         return {
@@ -195,7 +214,7 @@ try {
       assert.equal(focus, 'solid');
       await page.screenshot({ path: path.join(run, 'studio-directory-' + theme + '.png'), fullPage: true });
     }
-    await page.locator('#theme').click();
+    await page.locator('#theme').selectOption('light');
   });
   await check('directory reading keeps the previous list painted and unobscured', async () => {
     await page.evaluate((target) => {
@@ -485,9 +504,32 @@ try {
   });
   await check('theme changes preserve the editor contents', async () => {
     const before = await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue());
-    await page.locator('#theme').click();
-    assert.equal(await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()), before);
-    await expect(page.locator('#local-text-studio')).toHaveAttribute('data-theme', 'dark');
+    for (const theme of ['economist', 'vercel', 'light', 'dark']) {
+      await page.locator('#theme').selectOption(theme);
+      assert.equal(await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()), before);
+      await expect(page.locator('#local-text-studio')).toHaveAttribute('data-theme', theme);
+      if (theme === 'vercel') {
+        assert.equal(await page.locator('.CodeMirror').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(255, 255, 255)');
+        assert.equal(await page.locator('.lts-preview').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(250, 250, 250)');
+        await expect(page.locator('.lts-mermaid-card')).toHaveAttribute('data-state', 'ready');
+        await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state', 'ready');
+        await page.screenshot({ path: path.join(run, 'studio-editor-vercel.png'), fullPage: true });
+      }
+      if (theme === 'economist') {
+        assert.equal(await page.locator('.CodeMirror').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(246, 243, 237)');
+        assert.equal(await page.locator('.lts-preview').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(255, 253, 248)');
+        await expect(page.locator('.lts-mermaid-card')).toHaveAttribute('data-state', 'ready');
+        await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state', 'ready');
+        await page.screenshot({ path: path.join(run, 'studio-editor-economist.png'), fullPage: true });
+        await page.locator('.lts-preview').getByRole('link', { name: '相对文件', exact: true }).click();
+        await expect(page.locator('.CodeMirror')).toContainText('other text');
+        await expect(page.locator('#local-text-studio')).toHaveAttribute('data-theme', 'economist');
+        await page.goBack();
+        await expect(page.locator('.CodeMirror')).toContainText('中文笔记');
+        await expect(page.locator('#local-text-studio')).toHaveAttribute('data-theme', 'economist');
+        assert.equal(await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()), before);
+      }
+    }
   });
   await page.screenshot({ path: path.join(run, 'studio-editor-dark.png'), fullPage: true });
   await check('unsaved edits cancel internal navigation and browser history', async () => {
@@ -545,7 +587,7 @@ try {
     await page.screenshot({ path: path.join(run, 'studio-mdc-dark.png'), fullPage: true });
     await external(directory + 'rules.MDC');
     await expect(page.locator('.lts-preview h1')).toHaveText('MDC document');
-    await page.locator('#theme').click();
+    await page.locator('#theme').selectOption('light');
     await page.screenshot({ path: path.join(run, 'studio-mdc-light.png'), fullPage: true });
   });
   await check('encoded external filename opens correctly', async () => {
@@ -750,6 +792,117 @@ try {
       process_.kill();
     }
   });
+  await check('recent external files persist and internal opens never populate or reorder them', async () => {
+    const recentPage = await context.newPage();
+    const peer = await context.newPage();
+    watchPage(recentPage);
+    watchPage(peer);
+    const textURL = directory + 'other.txt';
+    const imageURL = new URL(encodeURIComponent('空目录') + '/recent-picture.png', directory).href;
+    await writeFile(path.join(fixture, '空目录', 'recent-picture.png'), await readFile(path.join(fixture, 'picture.png')));
+    const stored = () => recentPage.evaluate(async () => (await chrome.storage.local.get('recentExternalFiles')).recentExternalFiles || []);
+    const capture = async (href) => {
+      await recentPage.goto(href).catch((error) => {
+        if (!/interrupted|ERR_ABORTED/.test(error.message)) throw error;
+      });
+      await expect.poll(() => recentPage.url()).toBe(studio + '#' + encodeURIComponent(href));
+      await expect(recentPage.locator('#loading')).toBeHidden();
+    };
+    try {
+      await recentPage.goto(studio);
+      await peer.goto(studio);
+      await recentPage.evaluate(() => chrome.storage.local.set({ recentExternalFiles: [] }));
+      await expect(peer.locator('#recent-files a')).toHaveCount(0);
+      await recentPage.locator('#path').fill(textURL);
+      await recentPage.locator('#path-form').getByRole('button', { name: '打开', exact: true }).click();
+      await expect(recentPage.locator('.CodeMirror')).toContainText('other text');
+      assert.deepEqual(await stored(), []);
+      await recentPage.goto(studio + '#' + encodeURIComponent(directory));
+      await recentPage.locator('#search').fill('other.txt');
+      const internal = recentPage.locator('.entry').filter({ hasText: 'other.txt' });
+      await expect(internal).toHaveAttribute('href', studio + '#' + encodeURIComponent(textURL));
+      for (const options of [{ button: 'middle' }, { modifiers: ['Control'] }]) {
+        const opened = context.waitForEvent('page');
+        await internal.click(options);
+        const child = await opened;
+        try {
+          watchPage(child);
+          await expect.poll(() => child.url()).toBe(studio + '#' + encodeURIComponent(textURL));
+          await expect(child.locator('.CodeMirror')).toContainText('other text');
+          assert.deepEqual(await stored(), []);
+        } finally {
+          await child.close();
+        }
+      }
+      await internal.click();
+      await expect(recentPage.locator('.CodeMirror')).toContainText('other text');
+      assert.deepEqual(await stored(), []);
+      await capture(textURL);
+      await expect(recentPage.locator('.CodeMirror')).toContainText('other text');
+      await expect.poll(stored).toEqual([textURL]);
+      await expect(peer.locator('#recent-files a')).toHaveText(['other.txt']);
+      await capture(imageURL);
+      await expect(recentPage.locator('.iv-image')).toHaveAttribute('src', imageURL);
+      await expect.poll(stored).toEqual([imageURL, textURL]);
+      await capture(directory);
+      await expect(recentPage.locator('#search')).toHaveValue('');
+      assert.deepEqual(await stored(), [imageURL, textURL]);
+      await recentPage.locator('#recent-files').getByRole('link', { name: 'recent-picture.png', exact: true }).click();
+      await expect(recentPage.locator('.iv-image')).toHaveAttribute('src', imageURL);
+      assert.deepEqual(await stored(), [imageURL, textURL]);
+      await capture(textURL);
+      await expect.poll(stored).toEqual([textURL, imageURL]);
+      await recentPage.reload();
+      await expect(recentPage.locator('#recent-files a')).toHaveText(['other.txt', 'recent-picture.png']);
+      await expect(peer.locator('#recent-files a')).toHaveText(['other.txt', 'recent-picture.png']);
+      await recentPage.screenshot({ path: path.join(run, 'studio-recent-files.png'), fullPage: true });
+      await recentPage.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('unsaved recent draft'));
+      recentPage.once('dialog', (dialog) => dialog.dismiss());
+      await recentPage.locator('#recent-files').getByRole('link', { name: 'recent-picture.png', exact: true }).click();
+      assert.equal(await recentPage.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()), 'unsaved recent draft');
+      assert.deepEqual(await stored(), [textURL, imageURL]);
+      recentPage.once('dialog', (dialog) => dialog.accept());
+      await recentPage.locator('#recent-files').getByRole('link', { name: 'recent-picture.png', exact: true }).click();
+      await expect(recentPage.locator('.iv-image')).toHaveAttribute('src', imageURL);
+      assert.deepEqual(await stored(), [textURL, imageURL]);
+      await recentPage.keyboard.press('Escape');
+      await recentPage.goto(studio + '#' + encodeURIComponent(textURL));
+      await expect(recentPage.locator('.CodeMirror')).toContainText('other text');
+      await recentPage.locator('#native').click();
+      await recentPage.waitForURL((url) => url.protocol === 'file:');
+      await recentPage.reload();
+      await recentPage.goto(studio);
+      assert.deepEqual(await stored(), [textURL, imageURL]);
+    } finally {
+      await recentPage.close();
+      await peer.close();
+    }
+  });
+  await check('Vercel preserves real JavaScript syntax colors from the light theme', async () => {
+    const syntaxPath = path.join(fixture, 'syntax-colors.js');
+    await writeFile(syntaxPath, 'const message = "colour";\nconst count = 42;\n// syntax highlight comment\n');
+    const syntaxPage = await context.newPage();
+    watchPage(syntaxPage);
+    try {
+      await syntaxPage.goto(studio + '#' + encodeURIComponent(pathToFileURL(syntaxPath).href));
+      await syntaxPage.locator('#theme').selectOption('light');
+      const categories = ['keyword', 'string', 'number', 'comment'];
+      for (const category of categories) await expect(syntaxPage.locator('.CodeMirror .cm-' + category).first()).toBeVisible();
+      const colors = () => syntaxPage.locator('.CodeMirror').evaluate((editor, names) =>
+        Object.fromEntries(names.map((name) => [name, getComputedStyle(editor.querySelector('.cm-' + name)).color])), categories);
+      const lightColors = await colors();
+      assert.equal(new Set(Object.values(lightColors)).size, categories.length);
+      for (const color of Object.values(lightColors)) {
+        const channels = color.match(/[\d.]+/g).slice(0, 3);
+        assert.ok(new Set(channels).size > 1, 'Syntax color must remain chromatic: ' + color);
+      }
+      await syntaxPage.locator('#theme').selectOption('vercel');
+      assert.deepEqual(await colors(), lightColors);
+      assert.equal(await syntaxPage.locator('.CodeMirror').evaluate((editor) => getComputedStyle(editor).backgroundColor), 'rgb(255, 255, 255)');
+    } finally {
+      await syntaxPage.close();
+    }
+  });
   console.log('BROWSER_ERRORS', JSON.stringify(errors));
   assert.deepEqual(errors, []);
   const report = {
@@ -762,8 +915,8 @@ try {
     screenshots: [
       'studio-desktop-expanded.png', 'studio-desktop-collapsed.png',
       'studio-directory-narrow-expanded.png', 'studio-directory-narrow-collapsed.png',
-      'studio-directory-light.png', 'studio-directory-dark.png',
-      'studio-editor.png', 'studio-editor-dark.png', 'studio-narrow.png',
+      'studio-directory-light.png', 'studio-directory-dark.png', 'studio-directory-economist.png', 'studio-directory-vercel.png',
+      'studio-editor.png', 'studio-editor-dark.png', 'studio-editor-economist.png', 'studio-editor-vercel.png', 'studio-narrow.png', 'studio-recent-files.png',
       'studio-mdc-dark.png', 'studio-mdc-light.png', 'studio-picked-mdc.png',
       'studio-status-clean.png', 'studio-status-narrow-error.png',
       'studio-status-download.png', 'studio-status-save-error.png'

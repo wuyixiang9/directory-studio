@@ -1,5 +1,7 @@
 import { localURL, fileKind, pathLabel } from './model.js';
 import { readLocal, readPicked, pickDocument, persistDocument } from './files.js';
+import { recentExternalFiles, RECENT_EXTERNAL_FILES_KEY } from './recent-files.js';
+import { studioLinkTarget, prepareStudioLink } from './navigation.js';
 
 const $ = (id) => document.getElementById(id);
 const make = (tag, className = '', text) => {
@@ -45,6 +47,20 @@ preferences.set = ((original) =>
     original.call(this, key, value);
   })(preferences.set);
 window.studioPreferences = preferences;
+const studioURL = chrome.runtime.getURL('studio.html');
+const linkTarget = (link) => link ? studioLinkTarget(link.href, studioURL) : null;
+const prepareLinks = (root) => {
+  if (root.matches?.('a[href]')) prepareStudioLink(root, studioURL);
+  for (const link of root.querySelectorAll?.('a[href]') || []) prepareStudioLink(link, studioURL);
+};
+const linkObserver = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    if (mutation.type === 'attributes') prepareLinks(mutation.target);
+    else for (const node of mutation.addedNodes) prepareLinks(node);
+  }
+});
+linkObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href'] });
+prepareLinks(document.body);
 // Remember each layout independently; resizing restores that layout's choice without overwriting it.
 const narrowSidebar = window.matchMedia('(max-width: 700px)');
 const sidebarPreference = () =>
@@ -74,6 +90,8 @@ let editor = null,
   generation = 0,
   editorLoader = null,
   favorites = [],
+  recentFiles = [],
+  recentRevision = 0,
   historyIndex = 0,
   historyRestore = null,
   loadingTimer = null,
@@ -82,7 +100,7 @@ const viewer = shared.directoryStudioCreateImageViewer({
   root: $('main'),
   restoreFocus: (href) => {
     [...$('entries').querySelectorAll('a')]
-      .find((node) => node.href === href)
+      .find((node) => linkTarget(node) === href)
       ?.focus({ preventScroll: true });
   }
 });
@@ -154,7 +172,7 @@ function captureContext() {
     page: state.page,
     scroll: $('entries').scrollTop,
     focus:
-      document.activeElement?.closest('.entry')?.href ||
+      linkTarget(document.activeElement?.closest('.entry')) ||
       (document.activeElement === $('search') ? 'search' : '')
   };
   history.replaceState(
@@ -315,7 +333,7 @@ async function renderTarget(href, context = null, preloaded = null) {
       if (context?.focus === 'search') $('search').focus({ preventScroll: true });
       else if (context?.focus)
         [...$('entries').querySelectorAll('a')]
-          .find((link) => link.href === context.focus)
+          .find((link) => linkTarget(link) === context.focus)
           ?.focus({ preventScroll: true });
       if (kind === 'image') viewer.open(shared.directoryStudioImageSequence(filteredEntries()), href);
       status('本地目录 · ' + state.entries.length + ' 项 · 不递归扫描');
@@ -429,6 +447,19 @@ function renderFavorites() {
   $('favorite').disabled = !state.directory;
   $('favorite').textContent = favorites.some((item) => item.href === state.directory) ? '−' : '＋';
 }
+function renderRecentFiles() {
+  const fragment = document.createDocumentFragment();
+  for (const href of recentFiles) {
+    const fullPath = pathLabel(href);
+    const name = fullPath.split(/[\\/]/).pop() || fullPath;
+    const link = make('a', '', name);
+    link.href = studioURL + targetHash(href);
+    link.title = fullPath;
+    fragment.append(link);
+  }
+  if (!recentFiles.length) fragment.append(make('p', '', '暂无最近打开的文件。'));
+  $('recent-files').replaceChildren(fragment);
+}
 async function changeFavorite(intent) {
   try {
     const current = await chrome.storage.local.get('favorites');
@@ -519,8 +550,9 @@ $('favorite').addEventListener('click', () => {
           .pop() || state.directory
     });
 });
-$('theme').addEventListener('click', () => {
-  const theme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+$('theme').value = document.documentElement.dataset.theme;
+$('theme').addEventListener('change', () => {
+  const theme = $('theme').value;
   preferences.set('directory-studio.theme', theme);
   editor?.setTheme(theme);
 });
@@ -552,7 +584,7 @@ $('pick-file').addEventListener('click', async () => {
 document.addEventListener('click', (event) => {
   const link = event.target.closest('a[href]');
   if (!link) return;
-  const href = localURL(link.href);
+  const href = linkTarget(link);
   if (!href) return;
   if (documentData?.picked && link.closest('#editor-slot') && link.dataset.studioRelative === 'true') {
     event.preventDefault();
@@ -561,7 +593,7 @@ document.addEventListener('click', (event) => {
   }
   if (event.defaultPrevented || event.button !== 0) return;
   event.preventDefault();
-  if (link.hash && href === state.href) return;
+  if ((link.dataset.studioFragment === 'true' || localURL(link.href) && link.hash) && href === state.href) return;
   if (event.ctrlKey || event.metaKey || event.shiftKey) {
     void chrome.tabs.create({
       url: fileKind(href) ? chrome.runtime.getURL('studio.html') + targetHash(href) : href,
@@ -573,7 +605,7 @@ document.addEventListener('click', (event) => {
     void nativeOpen(href);
     return;
   }
-  if (fileKind(href) === 'image' && state.directory && !link.closest('#editor-slot'))
+  if (fileKind(href) === 'image' && state.directory && link.closest('#entries'))
     viewer.open(shared.directoryStudioImageSequence(filteredEntries()), href);
   else void navigate(href);
 });
@@ -635,6 +667,11 @@ window.addEventListener('pagehide', () => {
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
+  if (changes[RECENT_EXTERNAL_FILES_KEY]) {
+    recentRevision++;
+    recentFiles = recentExternalFiles(changes[RECENT_EXTERNAL_FILES_KEY].newValue);
+    renderRecentFiles();
+  }
   if (changes.favorites) {
     favorites = shared.directoryStudioFavorites(changes.favorites.newValue);
     menu.close();
@@ -642,10 +679,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes.autoCapture) $('capture').checked = changes.autoCapture.newValue !== false;
 });
-const settings = await chrome.storage.local.get(['favorites', 'autoCapture']);
+const initialRecentRevision = recentRevision;
+const settings = await chrome.storage.local.get(['favorites', 'autoCapture', RECENT_EXTERNAL_FILES_KEY]).catch(() => ({}));
+if (recentRevision === initialRecentRevision) recentFiles = recentExternalFiles(settings[RECENT_EXTERNAL_FILES_KEY]);
 favorites = shared.directoryStudioFavorites(settings.favorites);
 $('capture').checked = settings.autoCapture !== false;
 renderFavorites();
+renderRecentFiles();
 await updatePermission();
 historyIndex = Number.isInteger(history.state?.index) ? history.state.index : 0;
 const initial = validTarget(fromHash());
