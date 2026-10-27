@@ -76,7 +76,8 @@ let editor = null,
   favorites = [],
   historyIndex = 0,
   historyRestore = null,
-  loadingTimer = null;
+  loadingTimer = null,
+  releaseEditorStatus = null;
 const viewer = shared.directoryStudioCreateImageViewer({
   root: $('main'),
   restoreFocus: (href) => {
@@ -94,6 +95,35 @@ const menu = shared.directoryStudioCreateFavoritesMenu({
 const status = (text) => {
   $('status').textContent = text;
 };
+function attachEditorStatus() {
+  const host = $('local-text-studio');
+  const originalStatus = host.querySelector('.lts-status');
+  const notice = host.querySelector('.lts-notice');
+  const noticeParent = notice.parentNode;
+  const labels = [...originalStatus.children];
+  const encoding = originalStatus.querySelector('.lts-encoding');
+  const encodingText = encoding.textContent;
+  const footer = $('app-status');
+  const group = make('div', 'editor-status');
+  encoding.textContent = 'UTF-8';
+  group.append(...labels, notice);
+  footer.prepend(group);
+  footer.dataset.editor = 'true';
+  // Return borrowed nodes before disposing their editor; shell status IDs never leave the footer.
+  return () => {
+    originalStatus.append(...labels);
+    encoding.textContent = encodingText;
+    noticeParent.append(notice);
+    group.remove();
+    delete footer.dataset.editor;
+  };
+}
+function disposeEditor() {
+  releaseEditorStatus?.();
+  releaseEditorStatus = null;
+  editor?.dispose();
+  editor = null;
+}
 function targetHash(href) {
   return '#' + encodeURIComponent(href);
 }
@@ -246,8 +276,7 @@ async function renderTarget(href, context = null, preloaded = null) {
     const css = kind === 'text' ? await loadEditor() : null;
     if (token !== generation) return;
     // Keep the old editor alive until replacement data is ready. A failed read cannot discard edits.
-    editor?.dispose();
-    editor = null;
+    disposeEditor();
     documentData = null;
     $('editor-slot').replaceChildren();
     state.href = href;
@@ -268,11 +297,8 @@ async function renderTarget(href, context = null, preloaded = null) {
         }
       });
       if (!editor) throw Error('编辑器未能启动。');
-      status(
-        result.picked
-          ? '已授权文件 · UTF-8 · 文件正文不持久化'
-          : '只读打开 · Ctrl+S 可选择原文件并授权保存 · 下载副本不会覆盖原文件'
-      );
+      releaseEditorStatus = attachEditorStatus();
+      status('');
     } else {
       state.entries = result.entries;
       state.query = context?.query || '';
@@ -590,14 +616,14 @@ window.addEventListener('popstate', (event) => {
     history.replaceState({ index: historyIndex, href: href || '' }, '', location.href);
   if (href) void renderTarget(href, event.state?.context);
   else {
-    editor?.dispose();
-    editor = null;
+    disposeEditor();
     documentData = null;
     state.href = '';
     state.directory = '';
     setSections('welcome');
     $('breadcrumbs').replaceChildren();
     $('path').value = '';
+    status('就绪');
     renderFavorites();
   }
 });

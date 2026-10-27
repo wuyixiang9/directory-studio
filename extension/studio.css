@@ -406,6 +406,33 @@ select:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.app-status[data-editor='true'] {
+  height: auto;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.editor-status {
+  display: contents;
+}
+.editor-status .lts-dirty[data-dirty='true'] {
+  color: var(--blue);
+  font-weight: 600;
+}
+.editor-status .lts-cursor {
+  font-family: Consolas, 'Microsoft YaHei', monospace;
+}
+.editor-status .lts-notice,
+.app-status[data-editor='true'] #status {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.editor-status .lts-notice:empty,
+.app-status[data-editor='true'] #status:empty {
+  display: none;
+}
 dialog {
   max-width: 650px;
   max-height: 85dvh;
@@ -446,7 +473,7 @@ dialog p {
   border-top: 0;
 }
 #editor-slot #local-text-studio .lts-status {
-  padding: 7px 14px;
+  display: none;
 }
 @media (max-width: 1000px) {
   .sidebar {

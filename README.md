@@ -6,11 +6,11 @@ Chrome 扩展是当前主要入口；Tampermonkey（油猴）脚本仍受支持�
 
 ## 选择版本
 
-下表是当前工作树中的版本，尚未推送，不表示 GitHub 安装入口已更新，也不表示已在 Chrome Web Store 发布。
+下表对应本仓库源码版本。Chrome 扩展通过本地构建安装，尚未在 Chrome Web Store 发布；油猴脚本通过下方 GitHub 安装入口分发。
 
 | | Chrome 扩展（主要入口） | Tampermonkey 脚本（另一入口） |
 | --- | --- | --- |
-| 当前本地版本 | `extension/manifest.json`：1.6.4 | `package.json` / userscript：1.6.2 |
+| 仓库版本 | `extension/manifest.json`：1.6.5 | `package.json` / userscript：1.6.2 |
 | 安装方式 | 构建后加载 `dist/extension` | 安装 userscript，由 Tampermonkey 管理 |
 | 工作方式 | 独立 Manifest V3 工作台，同页切目录、编辑和打开本地链接 | 增强 Chrome 原生目录页与符合条件的原生文本页 |
 | 原文件写入 | 显式选择原文件并授权后可以保存 | 不写原文件，只能复制或下载编辑副本 |
@@ -18,7 +18,7 @@ Chrome 扩展是当前主要入口；Tampermonkey（油猴）脚本仍受支持�
 
 ## Chrome 扩展：安装与更新
 
-需要 Chrome 120 或更新版本。安装本地候选：
+需要 Chrome 120 或更新版本。从源码构建安装：
 
 1. 在仓库根目录运行 `node extension/build.mjs`。
 2. 打开 `chrome://extensions`，开启开发者模式，选择“加载已解压的扩展程序”，选中 `dist/extension`（包含 `manifest.json` 的那一级）。
@@ -34,7 +34,7 @@ Chrome 扩展是当前主要入口；Tampermonkey（油猴）脚本仍受支持�
 ## 油猴脚本：安装与更新
 
 1. 在 Chrome 安装 Tampermonkey。
-2. 打开[安装 Directory Studio](https://raw.githubusercontent.com/wuyixiang9/directory-studio/main/directory-studio.user.js)，在 Tampermonkey 中确认安装。该链接提供 GitHub `main` 上的版本，不等于尚未推送的本地候选。
+2. 打开[安装 Directory Studio](https://raw.githubusercontent.com/wuyixiang9/directory-studio/main/directory-studio.user.js)，在 Tampermonkey 中确认安装。该链接始终提供 GitHub `main` 上的版本。
 3. 在 Chrome 扩展管理页打开 Tampermonkey 详情，开启“允许访问文件网址”；如果显示“允许用户脚本”选项，也需要开启。较旧 Chrome 可能需要开发者模式，按 Tampermonkey 的提示处理。
 4. 用 Chrome 打开本地文件夹或支持的原生文本文件。若启用了 Directory Studio 扩展，请先停用其自动接管。
 5. 编辑 Markdown 前，请禁用 Markdown Viewer 等会接管该文件的扩展，再重新打开文件。脚本不从已渲染页面反推原文，也不强行覆盖其他应用页面。
@@ -100,6 +100,8 @@ CodeMirror 提供行号、语法高亮、缩进、括号匹配、撤销/重做�
 通过扩展“选择文件并授权编辑”打开时可直接使用文件句柄，但扩展不知道其绝对路径，相对本地链接会提示无法定位；显式 `file://` 链接仍可使用。油猴的输入来自浏览器解码结果，不承诺原始编码、BOM 或换行逐字节保留，下载为 UTF-8，换行可能归一化为 LF。
 
 “已修改（仅页面）”不表示已保存。两版会保护正常关闭或文件切换时的脏编辑，撤销回初始内容可恢复未修改状态；浏览器是否显示离开确认取决于交互策略。下载副本和复制都不会假称原文件已保存，修改扩展权限或重新加载前务必先保存。
+
+扩展编辑页只使用底部同一个状态区域：正常阅读时显示修改状态、行列和 UTF-8，不常驻保存教学文案。授权取消、保存与下载反馈按操作临时显示；慢读取和读取错误也在此区域显示，窄屏可换行。完整保存与权限说明可从“帮助”查看；目录页保留原状态栏行为。
 
 ## Markdown、Mermaid 与 Markmap
 

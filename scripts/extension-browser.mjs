@@ -271,6 +271,28 @@ try {
     await expect(page.locator('#loading')).toBeHidden();
     await expect(page.locator('#directory')).toBeVisible();
   });
+  await check('a failed document read from a directory keeps the original shell status nodes usable', async () => {
+    await page.evaluate(target => {
+      const original = window.fetch;
+      window.restoreStatusFetch = () => { window.fetch = original; };
+      window.directoryStatusIdentity = document.getElementById('status');
+      window.directoryLoadingIdentity = document.getElementById('loading');
+      window.fetch = (input, options) => String(input) === target
+        ? Promise.reject(Error('测试文档读取失败')) : original(input, options);
+    }, directory + 'notes.md');
+    await page.locator('#search').fill('notes');
+    await page.locator('.entry').click();
+    await expect(page.locator('#app-status #status')).toHaveText('测试文档读取失败');
+    await expect(page.locator('#app-status #status')).toBeVisible();
+    await expect(page.locator('#directory')).toBeVisible();
+    await expect(page.locator('#app-status .editor-status')).toHaveCount(0);
+    await expect(page.locator('#loading')).toBeHidden();
+    assert.equal(await page.evaluate(() =>
+      document.getElementById('status') === window.directoryStatusIdentity &&
+      document.getElementById('loading') === window.directoryLoadingIdentity), true);
+    await page.evaluate(() => window.restoreStatusFetch());
+    await page.locator('#search').fill('');
+  });
   await check('directory paths without a trailing slash also open Studio', async () => {
     await external(directory.slice(0, -1), directory);
     await expect(page.locator('#directory')).toBeVisible();
@@ -326,6 +348,26 @@ try {
     assert.equal(await page.evaluate(() => window.documentIdentity), 'same-document');
     assert.deepEqual(requests, []);
   });
+  await check('clean Markdown uses one concise status region without permanent save instructions', async () => {
+    await expect(page.locator('#app-status .lts-dirty')).toHaveText('未修改');
+    await expect(page.locator('#app-status .lts-cursor')).toContainText('行 1，列 1');
+    await expect(page.locator('#app-status .lts-encoding')).toHaveText('UTF-8');
+    await expect(page.locator('#app-status #status')).toBeEmpty();
+    await expect(page.locator('#app-status .lts-notice')).toBeEmpty();
+    await expect(page.locator('#editor-slot .lts-status')).toBeHidden();
+    await expect(page.locator('#app-status .editor-status')).toHaveCount(1);
+    const geometry = await page.locator('#app-status').evaluate((footer) => {
+      const labels = [...footer.querySelectorAll('.lts-dirty, .lts-cursor, .lts-encoding')];
+      return { height: footer.getBoundingClientRect().height, tops: labels.map(node => node.getBoundingClientRect().top) };
+    });
+    assert.ok(geometry.height <= 30);
+    assert.ok(Math.max(...geometry.tops) - Math.min(...geometry.tops) <= 1);
+    await page.evaluate(() => {
+      window.statusIdentity = document.getElementById('status');
+      window.loadingIdentity = document.getElementById('loading');
+    });
+    await page.screenshot({ path: path.join(run, 'studio-status-clean.png'), fullPage: true });
+  });
   await check('shell size reduction leaves editor and preview computed sizing unchanged', async () => {
     const sizes = await page.evaluate(() => {
       const selectors = ['#local-text-studio', '.CodeMirror', '.lts-toolbar button',
@@ -350,10 +392,85 @@ try {
     assert.equal(sizes.current[0].fontSize, '13px');
     assert.equal(sizes.current[1].fontSize, '13px');
   });
+  await check('cancelled save authorization reports inline then returns to concise reading status', async () => {
+    await page.evaluate(() => {
+      const original = window.showOpenFilePicker;
+      window.restoreStatusPicker = () => { window.showOpenFilePicker = original; };
+      window.showOpenFilePicker = async () => { throw new DOMException('Cancelled', 'AbortError'); };
+    });
+    await page.getByRole('button', { name: '授权后保存原文件 (Ctrl+S)', exact: true }).click();
+    await expect(page.locator('#app-status .lts-notice')).toContainText('已取消授权，编辑内容保留');
+    await expect(page.locator('#app-status .lts-notice')).toBeVisible();
+    await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'false');
+    await expect(page.getByRole('button', { name: '授权后保存原文件 (Ctrl+S)', exact: true })).toBeEnabled();
+    await page.evaluate(() => window.restoreStatusPicker());
+    await expect(page.locator('#app-status .lts-notice')).toBeEmpty({ timeout: 7000 });
+  });
+  await check('retained editor shows slow reads and failures in its single status region at 320px', async () => {
+    const message = '读取失败；原编辑内容保留。 ' + 'unavailable-path-'.repeat(8);
+    await page.evaluate(({ target, message }) => {
+      const original = window.fetch;
+      window.restoreStatusFetch = () => { window.fetch = original; };
+      window.retainedStatusEditor = document.querySelector('.CodeMirror');
+      window.fetch = (input, options) => String(input) === target
+        ? new Promise((_, reject) => { window.failStatusRead = () => reject(Error(message)); })
+        : original(input, options);
+    }, { target: directory, message });
+    await page.locator('#up').click();
+    await expect(page.locator('#app-status #loading')).toBeVisible();
+    await expect(page.locator('#app-status .lts-dirty')).toBeVisible();
+    await expect(page.locator('#app-status .editor-status')).toHaveCount(1);
+    await page.evaluate(() => { window.failStatusRead(); window.restoreStatusFetch(); });
+    await expect(page.locator('#app-status #status')).toHaveText(message);
+    await expect(page.locator('#app-status #loading')).toBeHidden();
+    await expect(page.locator('#main')).toHaveAttribute('aria-busy', 'false');
+    assert.equal(await page.evaluate(() => document.querySelector('.CodeMirror') === window.retainedStatusEditor), true);
+    await page.setViewportSize({ width: 320, height: 900 });
+    const layout = await page.locator('#app-status').evaluate((footer) => {
+      const error = footer.querySelector('#status');
+      const bounds = error.getBoundingClientRect();
+      return {
+        overflow: document.documentElement.scrollWidth > innerWidth,
+        inside: bounds.left >= 0 && bounds.right <= innerWidth && bounds.bottom <= innerHeight,
+        unclipped: error.scrollHeight <= error.clientHeight + 1,
+        whitespace: getComputedStyle(error).whiteSpace
+      };
+    });
+    assert.equal(layout.overflow, false);
+    assert.equal(layout.inside, true);
+    assert.equal(layout.unclipped, true);
+    assert.equal(layout.whitespace, 'normal');
+    await page.screenshot({ path: path.join(run, 'studio-status-narrow-error.png'), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 960 });
+  });
+  await check('original-text lifecycle keeps shell errors visible and returns the same borrowed status labels', async () => {
+    // The extension hides this legacy control; exercise its lifecycle without exposing a new UI action.
+    await page.evaluate(() => [...document.querySelectorAll('#local-text-studio button')]
+      .find(button => button.textContent === '原始文本').click());
+    await expect(page.locator('#local-text-studio')).toHaveAttribute('data-original', 'true');
+    await expect(page.locator('#app-status #status')).toContainText('读取失败');
+    await expect(page.locator('#app-status #status')).toBeVisible();
+    await expect(page.locator('#app-status .lts-dirty')).toBeVisible();
+    await page.getByRole('button', { name: '返回编辑器', exact: true }).click();
+    await expect(page.locator('.CodeMirror')).toBeVisible();
+    await expect(page.locator('#app-status .editor-status')).toHaveCount(1);
+    assert.equal(await page.evaluate(() =>
+      document.getElementById('status') === window.statusIdentity &&
+      document.getElementById('loading') === window.loadingIdentity), true);
+    // Failed navigation retained a duplicate history entry; return to the original document entry.
+    await page.goBack();
+    await expect(page.locator('.CodeMirror')).toContainText('中文笔记');
+    await expect(page.locator('#app-status #status')).toBeEmpty();
+  });
   await check('relative Markdown links open internally and history returns to the document',async()=>{
     await page.locator('.lts-preview').getByRole('link',{name:'相对文件',exact:true}).click();await expect(page.locator('.CodeMirror')).toContainText('other text');
+    await expect(page.locator('#app-status .lts-encoding')).toHaveText('UTF-8');
+    await expect(page.locator('#app-status #status')).toBeEmpty();
+    await expect(page.locator('#app-status .editor-status')).toHaveCount(1);
     await page.goBack();await expect(page.locator('.CodeMirror')).toContainText('中文笔记');assert.equal(await page.evaluate(()=>window.documentIdentity),'same-document');
     await expect(page.locator('.lts-mermaid-card')).toHaveAttribute('data-state','ready');await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state','ready');
+    await expect(page.locator('#app-status #status')).toBeEmpty();
+    await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'false');
   });
   await page.screenshot({ path: path.join(run, 'studio-editor.png'), fullPage: true });
   await check('narrow viewport keeps controls inside the window', async () => {
@@ -389,6 +506,8 @@ try {
       await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()),
       '# unsaved'
     );
+    await expect(page.locator('#app-status .editor-status')).toHaveCount(1);
+    await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'true');
   });
   await check('discard accepted returns to directory and restores prior search', async () => {
     page.once('dialog', (dialog) => dialog.accept());
@@ -396,6 +515,12 @@ try {
     await expect(page.locator('#directory')).toBeVisible();
     await expect(page.locator('#search')).toHaveValue('notes');
     await page.locator('#search').fill('');
+    await expect(page.locator('#app-status .editor-status')).toHaveCount(0);
+    await expect(page.locator('#app-status #status')).toContainText('本地目录');
+    await expect(page.locator('#app-status #status')).toBeVisible();
+    assert.equal(await page.evaluate(() =>
+      document.getElementById('status') === window.statusIdentity &&
+      document.getElementById('loading') === window.loadingIdentity), true);
   });
   await check('image viewer decodes images and closes in the current document', async () => {
     await page.locator('#search').fill('picture');
@@ -502,6 +627,8 @@ try {
     await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('# saved\n'));
     await page.locator('.CodeMirror').click();await page.keyboard.press('Control+s');
     await expect(page.locator('.lts-notice')).toContainText('已保存原文件');
+    await expect(page.locator('#app-status .lts-notice')).toBeVisible();
+    await expect(page.locator('#app-status .lts-notice')).toContainText('已保存原文件');
     assert.equal(await page.evaluate(async () => (await window.testHandle.getFile()).text()), '# saved\n');
     await expect(page.locator('.lts-dirty')).toHaveText('未修改');
   });
@@ -515,6 +642,9 @@ try {
     assert.equal(await readFile(await download.path(), 'utf8'), '# downloaded only\n');
     assert.equal(await page.evaluate(async () => (await window.testHandle.getFile()).text()), '# saved\n');
     await expect(page.locator('.lts-dirty')).toHaveAttribute('data-dirty', 'true');
+    await expect(page.locator('#app-status .lts-notice')).toContainText('原文件未改动');
+    await expect(page.locator('#app-status .lts-notice')).toBeVisible();
+    await page.screenshot({ path: path.join(run, 'studio-status-download.png'), fullPage: true });
   });
   await check('save snapshots retain edits made while writable close is pending', async () => {
     await page.evaluate(() => {
@@ -554,6 +684,15 @@ try {
     });
     await page.getByRole('button', { name: '授权后保存原文件 (Ctrl+S)', exact: true }).click();
     await expect(page.locator('.lts-notice')).toContainText('磁盘文件已被其他程序修改');
+    await expect(page.locator('#app-status .lts-notice')).toBeVisible();
+    await page.setViewportSize({ width: 320, height: 900 });
+    const errorFits = await page.locator('#app-status .lts-notice').evaluate((node) => {
+      const bounds = node.getBoundingClientRect();
+      return bounds.left >= 0 && bounds.right <= innerWidth && node.scrollHeight <= node.clientHeight + 1;
+    });
+    assert.equal(errorFits, true);
+    await page.screenshot({ path: path.join(run, 'studio-status-save-error.png'), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 960 });
     assert.equal(
       await page.evaluate(async () => (await window.testHandle.getFile()).text()),
       '# external change\n'
@@ -625,7 +764,9 @@ try {
       'studio-directory-narrow-expanded.png', 'studio-directory-narrow-collapsed.png',
       'studio-directory-light.png', 'studio-directory-dark.png',
       'studio-editor.png', 'studio-editor-dark.png', 'studio-narrow.png',
-      'studio-mdc-dark.png', 'studio-mdc-light.png', 'studio-picked-mdc.png'
+      'studio-mdc-dark.png', 'studio-mdc-light.png', 'studio-picked-mdc.png',
+      'studio-status-clean.png', 'studio-status-narrow-error.png',
+      'studio-status-download.png', 'studio-status-save-error.png'
     ].map((name) => path.join(run, name))
   };
   await writeFile(path.join(run, 'report.json'), JSON.stringify(report, null, 2));
