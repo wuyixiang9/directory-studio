@@ -148,6 +148,8 @@ function startLoadedTextStudio(dependencies) {
       let activeMode = EXTENSIONS[extension];
       let markdownView = window.matchMedia('(min-width:900px)').matches ? 'split' : 'edit';
       let original = false;
+      let previewFullscreen = false;
+      let fullscreenFocus = null;
       let dirty = false;
       let noticeTimer;
       let previewTimer;
@@ -198,6 +200,9 @@ function startLoadedTextStudio(dependencies) {
 @media(max-width:700px){#local-text-studio .lts-header{height:52px;padding:0 12px;gap:7px}#local-text-studio .lts-brand{font-size:11px;letter-spacing:1px}#local-text-studio .lts-header-actions{gap:4px}#local-text-studio .lts-button{font-size:11px;padding:6px 8px;min-height:32px}#local-text-studio .lts-heading{padding:12px;gap:7px;align-items:flex-start}#local-text-studio .lts-path{font-size:12px;gap:2px}#local-text-studio .lts-path [aria-current=page]{font-size:18px;padding:3px 7px}#local-text-studio .lts-parent{margin-top:3px}#local-text-studio .lts-toolbar{padding:8px 12px;gap:6px}#local-text-studio .lts-search{flex-basis:100%;width:100%}#local-text-studio .lts-matches{font-size:10px;min-width:48px}#local-text-studio .lts-mode{font-size:11px;max-width:150px;flex:1}#local-text-studio .lts-actions{gap:4px;flex-wrap:wrap}#local-text-studio .lts-views{gap:3px;padding-left:5px}#local-text-studio .lts-panes[data-layout=split]{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr)}#local-text-studio .lts-panes[data-layout=split] .lts-preview{border-left:0;border-top:1px solid var(--line)}#local-text-studio .lts-preview{padding:18px}#local-text-studio .lts-status{padding:7px 12px;font-size:10px}#local-text-studio .lts-encoding{display:none}#local-text-studio .CodeMirror{font-size:12px}}
 @media(prefers-reduced-motion:reduce){#local-text-studio *,#local-text-studio *:before,#local-text-studio *:after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 #local-text-studio .lts-primary:hover:not(:disabled){background:var(--blue);color:var(--card);filter:brightness(.95)}
+#local-text-studio[data-preview-fullscreen=true] .lts-header,#local-text-studio[data-preview-fullscreen=true] .lts-heading,#local-text-studio[data-preview-fullscreen=true] .lts-toolbar,#local-text-studio[data-preview-fullscreen=true] .lts-status,#local-text-studio[data-preview-fullscreen=true] .lts-notice{display:none!important}
+#local-text-studio .lts-exit-fullscreen{position:absolute;top:10px;right:12px;z-index:2;max-width:calc(100% - 24px)}
+#local-text-studio[data-preview-fullscreen=true] .lts-preview{padding-top:58px;border:0}
 `;
       const app = element('div', 'lts-app');
       const header = element('header', 'lts-header');
@@ -285,12 +290,22 @@ function startLoadedTextStudio(dependencies) {
         viewButtons[key] = control;
         views.append(control);
       }
+      const fullscreenButton = button('全屏预览', '全屏预览');
+      fullscreenButton.setAttribute('aria-expanded', 'false');
+      views.append(fullscreenButton);
       toolbar.append(searchGroup, mode, actions, views, copyText, download);
       if (saveOriginal) toolbar.append(saveOriginal);
       const panes = element('div', 'lts-panes');
       const editorPane = element('div', 'lts-editor');
       const preview = element('article', 'lts-preview');
       preview.setAttribute('aria-label', 'Markdown 预览');
+      preview.id = 'lts-markdown-preview';
+      preview.tabIndex = 0;
+      fullscreenButton.setAttribute('aria-controls', preview.id);
+      const exitFullscreen = button('退出全屏 · Esc', '退出全屏预览 (Esc)');
+      exitFullscreen.classList.add('lts-exit-fullscreen');
+      exitFullscreen.setAttribute('aria-keyshortcuts', 'Escape');
+      exitFullscreen.hidden = true;
       panes.append(editorPane, preview);
       const status = element('footer', 'lts-status');
       const dirtyLabel = element('span', 'lts-dirty', '未修改');
@@ -308,7 +323,7 @@ function startLoadedTextStudio(dependencies) {
       restore.classList.add('lts-restore');
       restore.hidden = true;
       app.append(header, heading, toolbar, panes, status);
-      host.append(app, restore, notice);
+      host.append(app, exitFullscreen, restore, notice);
       host.dataset.theme = theme;
       document.head.append(style, documentStyle);
       (adapter ? adapter.mount : document.body).append(host);
@@ -332,8 +347,12 @@ function startLoadedTextStudio(dependencies) {
       const markmapPreview = createMarkmapPreviewController(host, preview);
       let previewGeneration = 0;
       let cancelDiagrams = () => {};
+      let renderedText = null;
+      let renderedTheme = null;
+      const previewVisible = () => previewFullscreen || markdownView !== 'edit';
       function invalidatePreview() {
         previewGeneration++; cancelDiagrams(); mermaidPreview.invalidate(); markmapPreview.invalidate();
+        renderedText = null;
       }
       cleanup.push(() => { cancelDiagrams(); mermaidPreview.dispose(); markmapPreview.dispose(); });
       function announce(message) {
@@ -365,9 +384,10 @@ function startLoadedTextStudio(dependencies) {
       }
       function renderPreview() {
         clearTimeout(previewTimer);
-        invalidatePreview();
-        if (original || activeMode !== 'markdown' || markdownView === 'edit') return;
+        if (original || activeMode !== 'markdown' || !previewVisible()) return;
         const text = cm.getValue();
+        if (text === renderedText && theme === renderedTheme) return;
+        invalidatePreview();
         if (text.length > 512 * 1024 || new Blob([text]).size > 512 * 1024) {
           preview.textContent = 'Markdown 超过 512 KiB，暂停预览以保持编辑流畅。内容仍可编辑和下载。';
           return;
@@ -376,22 +396,25 @@ function startLoadedTextStudio(dependencies) {
           const rendered = markdown.render(text);
           // Only the shared escaped, resource-free renderer may produce preview HTML.
           preview.innerHTML = rendered.html;
+          renderedText = text;
+          renderedTheme = theme;
           const generation = previewGeneration;
           // Diagram sandboxes retain their existing light/dark protocol.
           const diagramTheme = theme === 'dark' ? 'dark' : 'light';
           if (rendered.blocks.length || rendered.markmapBlocks.length) cancelDiagrams = scheduleStudioDiagramRender(() => {
-            if (generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit') {
-              mermaidPreview.render(rendered.blocks, diagramTheme, () => generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit').catch(() => {});
-              if (rendered.markmapBlocks.length) markmapPreview.render(rendered.markmapBlocks, diagramTheme, () => generation === previewGeneration && !original && activeMode === 'markdown' && markdownView !== 'edit').catch(() => {});
+            if (generation === previewGeneration && !original && activeMode === 'markdown') {
+              mermaidPreview.render(rendered.blocks, diagramTheme, () => generation === previewGeneration && !original && activeMode === 'markdown').catch(() => {});
+              if (rendered.markmapBlocks.length) markmapPreview.render(rendered.markmapBlocks, diagramTheme, () => generation === previewGeneration && !original && activeMode === 'markdown').catch(() => {});
             }
           });
         } catch (_) { preview.textContent = '预览失败。原始编辑内容未改动，可继续编辑或下载副本。'; }
       }
       function applyLayout() {
         const isMarkdown = activeMode === 'markdown';
-        const layout = isMarkdown ? markdownView : 'edit';
+        const layout = isMarkdown ? (previewFullscreen ? 'preview' : markdownView) : 'edit';
         panes.dataset.layout = layout;
         editorPane.hidden = layout === 'preview';
+        editorPane.inert = editorPane.hidden;
         preview.hidden = layout === 'edit';
         views.hidden = !isMarkdown;
         format.hidden = activeMode !== 'json';
@@ -400,6 +423,26 @@ function startLoadedTextStudio(dependencies) {
         cancelAnimationFrame(refreshFrame);
         refreshFrame = requestAnimationFrame(() => { if (host.isConnected && !original) cm.refresh(); });
       }
+      function setPreviewFullscreen(value, restoreFocus = true) {
+        if (value === previewFullscreen || (value && (original || activeMode !== 'markdown'))) return;
+        if (value) fullscreenFocus = document.activeElement;
+        previewFullscreen = value;
+        host.dataset.previewFullscreen = String(value);
+        for (const node of [header, heading, toolbar, status, notice]) node.inert = value;
+        exitFullscreen.hidden = !value;
+        fullscreenButton.setAttribute('aria-expanded', String(value));
+        adapter?.setPreviewFullscreen?.(value);
+        if (!disposed) applyLayout();
+        if (value) exitFullscreen.focus({ preventScroll: true });
+        else if (restoreFocus && !disposed) {
+          const target = fullscreenFocus?.isConnected ? fullscreenFocus : fullscreenButton;
+          target.focus({ preventScroll: true });
+        }
+        if (!value) fullscreenFocus = null;
+      }
+      fullscreenButton.addEventListener('click', () => setPreviewFullscreen(true));
+      exitFullscreen.addEventListener('click', () => setPreviewFullscreen(false));
+      host.addEventListener('studio-preview-escape', () => setPreviewFullscreen(false));
       function countMatches() {
         clearTimeout(searchTimer);
         const query = search.value;
@@ -461,6 +504,7 @@ function startLoadedTextStudio(dependencies) {
         } finally { saving = false; if (!disposed) saveOriginal.disabled = false; }
       }
       function setOriginal(value) {
+        if (value) setPreviewFullscreen(false, false);
         original = value;
         if (value) invalidatePreview();
         host.dataset.original = String(value);
@@ -488,6 +532,7 @@ function startLoadedTextStudio(dependencies) {
       mode.addEventListener('change', () => {
         selectedMode = mode.value;
         activeMode = selectedMode === 'auto' ? EXTENSIONS[extension] : selectedMode;
+        if (activeMode !== 'markdown') { setPreviewFullscreen(false); invalidatePreview(); }
         cm.setOption('mode', MODES[activeMode][1]);
         applyLayout();
       });
@@ -534,7 +579,7 @@ function startLoadedTextStudio(dependencies) {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(countMatches, 160);
         clearTimeout(previewTimer);
-        if (activeMode === 'markdown' && markdownView !== 'edit') previewTimer = setTimeout(renderPreview, 220);
+        if (activeMode === 'markdown' && previewVisible()) previewTimer = setTimeout(renderPreview, 220);
       });
       cm.on('cursorActivity', updateStatus);
       const onBeforeUnload = event => {
@@ -544,6 +589,17 @@ function startLoadedTextStudio(dependencies) {
       };
       window.addEventListener('beforeunload', onBeforeUnload);
       cleanup.push(() => window.removeEventListener('beforeunload', onBeforeUnload));
+      const onPreviewKeyDown = event => {
+        if (!previewFullscreen || event.isComposing) return;
+        const find = !event.altKey && !event.shiftKey && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f';
+        if (event.key !== 'Escape' && !find) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setPreviewFullscreen(false);
+        if (find) { search.focus(); search.select(); }
+      };
+      window.addEventListener('keydown', onPreviewKeyDown, true);
+      cleanup.push(() => window.removeEventListener('keydown', onPreviewKeyDown, true));
       host.addEventListener('keydown', event => {
         if (original || event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey || !(event.ctrlKey || event.metaKey)) return;
         const key = event.key.toLowerCase();
@@ -555,6 +611,7 @@ function startLoadedTextStudio(dependencies) {
         }
       }, true);
       const onPageHide = () => {
+        setPreviewFullscreen(false, false);
         invalidatePreview();
         clearTimeout(noticeTimer);
         clearTimeout(previewTimer);
@@ -575,6 +632,7 @@ function startLoadedTextStudio(dependencies) {
       if (adapter) adapter.ready({
         getValue: () => cm.getValue(), isDirty: () => cm.getValue() !== baseline,
         isSaving: () => saving,
+        exitPreviewFullscreen: () => setPreviewFullscreen(false, false),
         setTheme(value) { theme = normalizeLocalTextStudioTheme(value); applyTheme(); renderPreview(); },
         dispose() { if (disposed) return; disposed = true; rollback(); delete document[TOKEN]; }
       });

@@ -29,9 +29,16 @@ function markmapSandboxMain(config) {
   let disposed = false;
   let queue = Promise.resolve();
   const send = message => parent.postMessage({ channel: config.channel, nonce: config.nonce, id: request, ...message }, '*');
+  const onKeyDown = event => {
+    if (event.key === 'Escape' && !event.isComposing && started && !disposed) {
+      event.preventDefault();
+      send({ kind: 'escape' });
+    }
+  };
   const dispose = () => {
     disposed = true;
     window.removeEventListener('message', onMessage);
+    window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('pagehide', dispose);
     window.removeEventListener('unload', dispose);
     if (map) { map.destroy(); map = null; }
@@ -79,6 +86,7 @@ function markmapSandboxMain(config) {
     });
   }
   window.addEventListener('message', onMessage);
+  window.addEventListener('keydown', onKeyDown);
   window.addEventListener('pagehide', dispose);
   window.addEventListener('unload', dispose);
   send({ kind: 'ready' });
@@ -238,6 +246,8 @@ function createMarkmapPreviewController(host, preview) {
             card.dataset.state = 'ready';
             status.textContent = '点击节点圆点展开或收起；拖动画布平移，滚轮缩放。';
             buttons.forEach(button => { button.disabled = false; });
+          } else if (initialized && message.id === id && message.kind === 'escape') {
+            host.dispatchEvent(new CustomEvent('studio-preview-escape'));
           } else if (initialized && message.id === id && message.kind === 'error') fail('脑图渲染失败：' + (typeof message.error === 'string' ? message.error.slice(0, 240) : '未知错误。'));
         };
         cleanups.push(close);

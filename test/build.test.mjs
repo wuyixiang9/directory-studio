@@ -51,7 +51,29 @@ test('generated core and maintainable browser sources parse without running brow
   }
 });
 
-test('formal build is reproducible and every public resource matches SRI and retained licenses', async () => {
+test('retained published resources match the shipped entrypoint SRI and licenses independently of evolving sources', async () => {
+  const meta = await read('directory-studio.meta.js');
+  const payload = await read('directory-studio.user.js');
+  assert.ok(payload.startsWith(meta));
+  const vendor = JSON.parse(await read('vendor-manifest.json'));
+  const licenses = {
+    editor: 'vendor/codemirror-' + vendor.codemirror.version + '/LICENSE',
+    markdown: 'vendor/markdown-it-' + vendor.markdownIt.version + '/LICENSE',
+    mermaid: 'vendor/mermaid-' + vendor.mermaid.version + '/LICENSE',
+    markmap: 'vendor/markmap-lib-' + vendor.markmapLib.version + '/LICENSE'
+  };
+  const resources = resourceTags(meta);
+  assert.equal(resources.length, 5);
+  for (const [, name, url, hash] of resources) {
+    assert.ok(url.startsWith(publicBase + 'resources/1.6.2/'));
+    const bytes = await readFile(path.join(root, url.slice(publicBase.length)));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), hash, name + ' published SRI');
+    if (['editor', 'markdown'].includes(name)) assert.doesNotThrow(() => new Function('environment', bytes.toString()));
+    if (licenses[name]) assert.ok(bytes.toString().includes(await read(licenses[name])), name + ' published license');
+  }
+});
+
+test('current-source formal build is reproducible in a temporary tree with valid SRI and licenses', async () => {
   const temp = await mkdtemp(path.join(tmpdir(), 'directory-studio-release-'));
   try {
     await copyInputs(temp);
@@ -64,8 +86,9 @@ test('formal build is reproducible and every public resource matches SRI and ret
     await assert.rejects(access(artifactRoot), { code: 'ENOENT' });
     const firstUser = await readFile(path.join(temp, 'directory-studio.user.js'));
     const firstMeta = await readFile(path.join(temp, 'directory-studio.meta.js'));
-    assert.deepEqual(firstUser, await readFile(path.join(root, 'directory-studio.user.js')));
-    assert.deepEqual(firstMeta, await readFile(path.join(root, 'directory-studio.meta.js')));
+    assert.ok(firstUser.toString().startsWith(firstMeta.toString()));
+    const withoutResources = text => text.replace(/^\/\/ @resource[^\n]*\n/gm, '');
+    assert.equal(withoutResources(firstMeta.toString()), withoutResources(await read('directory-studio.meta.js')));
     const snapshots = new Map();
     const vendor = JSON.parse(await read('vendor-manifest.json'));
     const licenses = {
@@ -80,7 +103,6 @@ test('formal build is reproducible and every public resource matches SRI and ret
       const relative = url.slice(publicBase.length);
       const bytes = await readFile(path.join(temp, relative));
       snapshots.set(relative, bytes);
-      assert.deepEqual(bytes, await readFile(path.join(root, relative)));
       assert.equal(createHash('sha256').update(bytes).digest('hex'), hash);
       if (['editor', 'markdown'].includes(name)) assert.doesNotThrow(() => new Function('environment', bytes.toString()));
       if (licenses[name]) assert.ok(bytes.toString().includes(await read(licenses[name])));

@@ -521,6 +521,14 @@ dialog p {
 #editor-slot #local-text-studio .lts-status {
   display: none;
 }
+body[data-preview-fullscreen='true'] > .topbar,
+body[data-preview-fullscreen='true'] > #permission,
+body[data-preview-fullscreen='true'] > .pathbar,
+body[data-preview-fullscreen='true'] .sidebar,
+body[data-preview-fullscreen='true'] .breadcrumbs,
+body[data-preview-fullscreen='true'] > .app-status {
+  display: none !important;
+}
 @media (max-width: 1000px) {
   .sidebar {
     width: 170px;

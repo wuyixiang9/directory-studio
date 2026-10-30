@@ -116,8 +116,10 @@ test('shared editor initialization and public setTheme preserve all themes and n
 test('light palettes retain the supported light diagram protocol for both renderers', () => {
   const requested = [];
   const context = vm.createContext({
-    clearTimeout() {}, previewTimer: null, previewGeneration: 0,
-    invalidatePreview() { context.previewGeneration++; },
+    clearTimeout() {}, previewTimer: null, previewGeneration: 0, cancelDiagrams() {},
+    renderedText: null, renderedTheme: null,
+    previewVisible: () => context.markdownView !== 'edit',
+    invalidatePreview() { context.previewGeneration++; context.cancelDiagrams(); context.renderedText = null; },
     original: false, activeMode: 'markdown', markdownView: 'split', theme: 'economist',
     Blob, cm: { getValue: () => '# Document' }, preview: {},
     markdown: { render: () => ({ html: '<h1>Document</h1>', blocks: ['mermaid'], markmapBlocks: ['markmap'] }) },

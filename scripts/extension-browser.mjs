@@ -387,6 +387,103 @@ try {
     });
     await page.screenshot({ path: path.join(run, 'studio-status-clean.png'), fullPage: true });
   });
+  await check('Markdown page fullscreen preserves every layout and live diagram DOM', async () => {
+    const enter = page.getByRole('button', { name: '全屏预览', exact: true });
+    const exit = page.getByRole('button', { name: '退出全屏预览 (Esc)', exact: true });
+    await page.evaluate(() => {
+      window.fullscreenEditor = document.querySelector('.CodeMirror');
+      window.fullscreenDiagram = document.querySelector('.lts-markmap-frame');
+      window.fullscreenHeading = document.querySelector('.lts-preview h1');
+    });
+    for (const layout of ['split', 'preview', 'edit']) {
+      const label = { split: '分栏', preview: '预览', edit: '编辑' }[layout];
+      await page.getByRole('button', { name: label, exact: true }).click();
+      await enter.click();
+      await expect(page.locator('body')).toHaveAttribute('data-preview-fullscreen', 'true');
+      await expect(page.locator('.lts-panes')).toHaveAttribute('data-layout', 'preview');
+      await expect(exit).toBeFocused();
+      for (const selector of ['.topbar', '#path-form', '#sidebar', '#breadcrumbs', '#app-status', '.lts-toolbar', '.CodeMirror']) {
+        await expect(page.locator(selector)).toBeHidden();
+      }
+      const geometry = await page.locator('.lts-preview').boundingBox();
+      assert.ok(geometry.x <= 1 && geometry.y <= 1 && geometry.width >= 1439 && geometry.height >= 959);
+      assert.equal(await page.evaluate(() => document.fullscreenElement), null);
+      assert.equal(await page.evaluate(() => [...document.querySelectorAll('.topbar, #path-form, #sidebar, #breadcrumbs, #app-status, .lts-toolbar, .lts-editor')].every(node => node.inert)), true);
+      for (let index = 0; index < 8; index++) {
+        await page.keyboard.press('Tab');
+        assert.equal(await page.evaluate(() => !!document.activeElement.closest('.topbar, #path-form, #sidebar, #breadcrumbs, #app-status, .lts-toolbar, .lts-editor')), false);
+      }
+      // Includes Escape while keyboard focus is inside the sandboxed interactive diagram.
+      if (layout === 'preview') {
+        await page.frameLocator('.lts-markmap-frame').locator('svg').click({ position: { x: 5, y: 5 } });
+        await page.keyboard.press('Escape');
+      } else {
+        await exit.click();
+      }
+      await expect(page.locator('body')).not.toHaveAttribute('data-preview-fullscreen', 'true');
+      await expect(page.locator('.lts-panes')).toHaveAttribute('data-layout', layout);
+      await expect(enter).toBeFocused();
+      await expect(page.locator('.topbar')).toBeVisible();
+      assert.equal(await page.evaluate(() =>
+        document.querySelector('.CodeMirror') === window.fullscreenEditor &&
+        document.querySelector('.lts-markmap-frame') === window.fullscreenDiagram &&
+        document.querySelector('.lts-preview h1') === window.fullscreenHeading), true);
+    }
+    await page.getByRole('button', { name: '分栏', exact: true }).click();
+    await expect(page.frameLocator('.lts-markmap-frame').locator('.markmap-node')).toHaveCount(4);
+  });
+  await check('fullscreen preserves unsaved edits, history, theme and scroll without mounting another editor', async () => {
+    await page.evaluate(() => {
+      const cm = document.querySelector('.CodeMirror').CodeMirror;
+      window.fullscreenBeforeText = cm.getValue();
+      cm.replaceRange('\n\n' + 'Fullscreen draft paragraph.\n\n'.repeat(100), { line: cm.lastLine(), ch: cm.getLine(cm.lastLine()).length }, undefined, '+input');
+    });
+    await expect(page.locator('.lts-preview')).toContainText('Fullscreen draft paragraph.');
+    await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state', 'ready');
+    await page.evaluate(() => {
+      const cm = document.querySelector('.CodeMirror').CodeMirror;
+      const preview = document.querySelector('.lts-preview');
+      preview.scrollTop = 150;
+      window.fullscreenDraft = {
+        text: cm.getValue(), history: JSON.stringify(cm.getHistory()),
+        theme: document.querySelector('#local-text-studio').dataset.theme,
+        scroll: preview.scrollTop, heading: preview.firstElementChild
+      };
+    });
+    await page.getByRole('button', { name: '全屏预览', exact: true }).click();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => {
+      const cm = document.querySelector('.CodeMirror').CodeMirror;
+      const preview = document.querySelector('.lts-preview');
+      const draft = window.fullscreenDraft;
+      return cm.getValue() === draft.text && JSON.stringify(cm.getHistory()) === draft.history &&
+        document.querySelector('#local-text-studio').dataset.theme === draft.theme &&
+        preview.firstElementChild === draft.heading && Math.abs(preview.scrollTop - draft.scroll) <= 1;
+    }), true);
+    await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'true');
+    await page.getByRole('button', { name: '全屏预览', exact: true }).click();
+    await page.keyboard.press('Control+f');
+    await expect(page.locator('.lts-search input')).toBeFocused();
+    await expect(page.locator('.lts-toolbar')).toBeVisible();
+    await expect(page.locator('.lts-panes')).toHaveAttribute('data-layout', 'split');
+    await page.getByRole('button', { name: '撤销', exact: true }).click();
+    assert.equal(await page.locator('.CodeMirror').evaluate(node => node.CodeMirror.getValue() === window.fullscreenBeforeText), true);
+    await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'false');
+    await expect(page.locator('.lts-preview')).not.toContainText('Fullscreen draft paragraph.');
+    await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state', 'ready');
+  });
+  await check('fullscreen fits a 320px viewport and restores the narrow shell', async () => {
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.getByRole('button', { name: '全屏预览', exact: true }).click();
+    const box = await page.getByRole('button', { name: '退出全屏预览 (Esc)', exact: true }).boundingBox();
+    assert.ok(box.x >= 0 && box.x + box.width <= 320 && box.y >= 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: path.join(run, 'studio-markdown-fullscreen-narrow.png'), fullPage: true });
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#path-form')).toBeVisible();
+    await expect(page.locator('.lts-toolbar')).toBeVisible();
+    await page.setViewportSize({ width: 1440, height: 960 });
+  });
   await check('shell size reduction leaves editor and preview computed sizing unchanged', async () => {
     const sizes = await page.evaluate(() => {
       const selectors = ['#local-text-studio', '.CodeMirror', '.lts-toolbar button',
@@ -482,7 +579,12 @@ try {
     await expect(page.locator('#app-status #status')).toBeEmpty();
   });
   await check('relative Markdown links open internally and history returns to the document',async()=>{
+    await page.getByRole('button', { name: '全屏预览', exact: true }).click();
     await page.locator('.lts-preview').getByRole('link',{name:'相对文件',exact:true}).click();await expect(page.locator('.CodeMirror')).toContainText('other text');
+    await expect(page.locator('body')).not.toHaveAttribute('data-preview-fullscreen', 'true');
+    await expect(page.locator('.topbar')).toBeVisible();
+    await expect(page.getByRole('button', { name: '全屏预览', exact: true })).toHaveCount(0);
+    assert.equal(await page.locator('.topbar').evaluate(node => node.inert), false);
     await expect(page.locator('#app-status .lts-encoding')).toHaveText('UTF-8');
     await expect(page.locator('#app-status #status')).toBeEmpty();
     await expect(page.locator('#app-status .editor-status')).toHaveCount(1);

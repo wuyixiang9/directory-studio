@@ -136,10 +136,25 @@ function attachEditorStatus() {
     delete footer.dataset.editor;
   };
 }
+let fullscreenShellState = null;
+function setPreviewFullscreen(value) {
+  if (value && !fullscreenShellState) {
+    menu.close();
+    const nodes = document.querySelectorAll('.topbar, #permission, #path-form, #sidebar, #breadcrumbs, #app-status');
+    fullscreenShellState = new Map([...nodes].map(node => [node, node.inert]));
+    for (const node of nodes) node.inert = true;
+    document.body.dataset.previewFullscreen = 'true';
+  } else if (!value && fullscreenShellState) {
+    for (const [node, inert] of fullscreenShellState) node.inert = inert;
+    fullscreenShellState = null;
+    delete document.body.dataset.previewFullscreen;
+  }
+}
 function disposeEditor() {
   releaseEditorStatus?.();
   releaseEditorStatus = null;
   editor?.dispose();
+  setPreviewFullscreen(false);
   editor = null;
 }
 function targetHash(href) {
@@ -270,6 +285,7 @@ async function renderTarget(href, context = null, preloaded = null) {
   const signal = readJob.signal;
   viewer.close(false);
   menu.close();
+  editor?.exitPreviewFullscreen();
   $('editor-slot').inert = true;
   // Keep the currently painted content until the next view is ready. Fast reads need no visual cue.
   clearTimeout(loadingTimer);
@@ -310,6 +326,7 @@ async function renderTarget(href, context = null, preloaded = null) {
         mount: $('editor-slot'),
         css,
         save: (text) => persistDocument(href, result, text),
+        setPreviewFullscreen,
         ready: (api) => {
           editor = api;
         }

@@ -106,7 +106,9 @@ test('full-file Markdown retains its UTF-8 size guard and renders body before sc
   let text = '\u4e2d'.repeat(180000);
   Object.assign(context, {
     clearTimeout() {}, previewTimer: null, previewGeneration: 0, cancelDiagrams() {},
-    invalidatePreview() { context.previewGeneration++; context.cancelDiagrams?.(); },
+    renderedText: null, renderedTheme: null,
+    previewVisible: () => context.markdownView !== 'edit',
+    invalidatePreview() { context.previewGeneration++; context.cancelDiagrams?.(); context.renderedText = null; },
     original: false, activeMode: 'markdown', markdownView: 'split', theme: 'light',
     cm: { getValue: () => text }, preview: { innerHTML: '', textContent: '' },
     markdown: { render() { renders++; return { html: '<p>Readable body</p>', blocks: ['graph LR;A-->B'], markmapBlocks: [] }; } },
