@@ -45,8 +45,8 @@ function startLoadedTextStudio(dependencies) {
   const mime = adapter ? 'text/plain' : document.contentType.toLowerCase().split(';')[0].trim();
   if (/html|xml|svg/.test(mime) || (!mime.startsWith('text/') && !/^application\/(?:json|javascript|x-javascript|ecmascript|yaml|x-yaml|toml|sql|x-sh|x-powershell)$/.test(mime))) return false;
   const TOKEN = Symbol.for('directory-studio.text.startup');
-  if (document[TOKEN] || document.getElementById('local-text-studio') || document.getElementById('local-text-studio-fallback')) return true;
-  Object.defineProperty(document, TOKEN, { value: true, configurable: true });
+  if (!adapter && (document[TOKEN] || document.getElementById('local-text-studio') || document.getElementById('local-text-studio-fallback'))) return true;
+  if (!adapter) Object.defineProperty(document, TOKEN, { value: true, configurable: true });
   const MAX_BYTES = 2 * 1024 * 1024;
   const MAX_LINES = 50000;
   let observer;
@@ -87,6 +87,7 @@ function startLoadedTextStudio(dependencies) {
       if (char === 13 && source.charCodeAt(index + 1) === 10) index++;
     }
     if (source.length > MAX_BYTES || new Blob([source]).size > MAX_BYTES || lines > MAX_LINES) {
+      if (adapter) throw Error('文件超过 2 MiB 或 50,000 行，请使用原生打开。');
       const note = document.createElement('aside');
       note.id = 'local-text-studio-fallback';
       note.setAttribute('role', 'status');
@@ -105,11 +106,12 @@ function startLoadedTextStudio(dependencies) {
     const previousNative = new Map(nativeNodes.map(node => [node, node.getAttribute('data-local-text-studio-native')]));
     const host = document.createElement('section');
     host.id = 'local-text-studio';
+    host.className = 'local-text-studio';
     host.setAttribute('aria-label', '本地文本编辑器');
     const style = document.createElement('style');
-    style.id = 'local-text-studio-style';
+    if (!adapter) style.id = 'local-text-studio-style';
     const documentStyle = document.createElement('style');
-    documentStyle.id = 'local-text-studio-document-style';
+    if (!adapter) documentStyle.id = 'local-text-studio-document-style';
     documentStyle.textContent = '[data-local-text-studio-native="hidden"]{display:none!important}' +
       'html[data-local-text-studio-theme="light"],html[data-local-text-studio-theme="light"] body{background:#edf3fb!important;color-scheme:light!important}' +
       'html[data-local-text-studio-theme="dark"],html[data-local-text-studio-theme="dark"] body{background:#111c2e!important;color-scheme:dark!important}' +
@@ -121,8 +123,10 @@ function startLoadedTextStudio(dependencies) {
         if (value === null) node.removeAttribute('data-local-text-studio-native');
         else node.setAttribute('data-local-text-studio-native', value);
       }
-      if (previousTheme === null) root.removeAttribute('data-local-text-studio-theme');
-      else root.setAttribute('data-local-text-studio-theme', previousTheme);
+      if (!adapter) {
+        if (previousTheme === null) root.removeAttribute('data-local-text-studio-theme');
+        else root.setAttribute('data-local-text-studio-theme', previousTheme);
+      }
     }
     const rollback = () => {
       cleanup.forEach(fn => fn());
@@ -204,6 +208,7 @@ function startLoadedTextStudio(dependencies) {
 #local-text-studio .lts-exit-fullscreen{position:absolute;top:10px;right:12px;z-index:2;max-width:calc(100% - 24px)}
 #local-text-studio[data-preview-fullscreen=true] .lts-preview{padding-top:58px;border:0}
 `;
+      if (adapter) style.textContent = style.textContent.replaceAll('#local-text-studio', '.local-text-studio');
       const app = element('div', 'lts-app');
       const header = element('header', 'lts-header');
       const headerActions = element('div', 'lts-header-actions');
@@ -299,7 +304,7 @@ function startLoadedTextStudio(dependencies) {
       const editorPane = element('div', 'lts-editor');
       const preview = element('article', 'lts-preview');
       preview.setAttribute('aria-label', 'Markdown 预览');
-      preview.id = 'lts-markdown-preview';
+      preview.id = adapter ? 'lts-markdown-preview-' + adapter.mount.dataset.document : 'lts-markdown-preview';
       preview.tabIndex = 0;
       fullscreenButton.setAttribute('aria-controls', preview.id);
       const exitFullscreen = button('退出全屏 · Esc', '退出全屏预览 (Esc)');
@@ -342,6 +347,8 @@ function startLoadedTextStudio(dependencies) {
       let baseline = cm.getValue();
       let saving = false;
       let disposed = false;
+      let active = true;
+      let parkedScroll = null;
       const markdown = createStudioMarkdownRenderer(MarkdownIt, url);
       const mermaidPreview = createMermaidPreviewController(host, preview);
       const markmapPreview = createMarkmapPreviewController(host, preview);
@@ -366,13 +373,14 @@ function startLoadedTextStudio(dependencies) {
         const label = theme === 'light' ? '切换深色主题' : '切换浅色主题';
         themeButton.title = label;
         themeButton.setAttribute('aria-label', label);
-        if (!original) {
+        if (!original && active) {
           root.setAttribute('data-local-text-studio-theme', theme);
           nativeNodes.forEach(node => node.setAttribute('data-local-text-studio-native', 'hidden'));
           documentStyle.disabled = false;
         }
       }
       function updateStatus() {
+        const previousDirty = dirty;
         dirty = cm.getValue() !== baseline;
         dirtyLabel.textContent = dirty ? '已修改（仅页面）' : '未修改';
         dirtyLabel.dataset.dirty = String(dirty);
@@ -381,6 +389,7 @@ function startLoadedTextStudio(dependencies) {
         const history = cm.historySize();
         undo.disabled = !history.undo;
         redo.disabled = !history.redo;
+        if (previousDirty !== dirty) adapter?.changed?.();
       }
       function renderPreview() {
         clearTimeout(previewTimer);
@@ -421,7 +430,16 @@ function startLoadedTextStudio(dependencies) {
         for (const [key, control] of Object.entries(viewButtons)) control.setAttribute('aria-pressed', String(key === layout));
         renderPreview();
         cancelAnimationFrame(refreshFrame);
-        refreshFrame = requestAnimationFrame(() => { if (host.isConnected && !original) cm.refresh(); });
+        refreshFrame = requestAnimationFrame(() => {
+          if (!active || !host.isConnected || original) return;
+          cm.refresh();
+          if (parkedScroll) {
+            cm.scrollTo(parkedScroll.editor.left, parkedScroll.editor.top);
+            preview.scrollTop = parkedScroll.top;
+            preview.scrollLeft = parkedScroll.left;
+            parkedScroll = null;
+          }
+        });
       }
       function setPreviewFullscreen(value, restoreFocus = true) {
         if (value === previewFullscreen || (value && (original || activeMode !== 'markdown'))) return;
@@ -590,7 +608,7 @@ function startLoadedTextStudio(dependencies) {
       window.addEventListener('beforeunload', onBeforeUnload);
       cleanup.push(() => window.removeEventListener('beforeunload', onBeforeUnload));
       const onPreviewKeyDown = event => {
-        if (!previewFullscreen || event.isComposing) return;
+        if (!active || !previewFullscreen || event.isComposing) return;
         const find = !event.altKey && !event.shiftKey && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f';
         if (event.key !== 'Escape' && !find) return;
         event.preventDefault();
@@ -632,6 +650,23 @@ function startLoadedTextStudio(dependencies) {
       if (adapter) adapter.ready({
         getValue: () => cm.getValue(), isDirty: () => cm.getValue() !== baseline,
         isSaving: () => saving,
+        setActive(value) {
+          if (active === value) return;
+          if (!value) {
+            setPreviewFullscreen(false, false);
+            parkedScroll = { editor: cm.getScrollInfo(), top: preview.scrollTop, left: preview.scrollLeft };
+          }
+          active = value;
+          host.hidden = !value;
+          if (value) {
+            host.id = 'local-text-studio';
+            applyTheme();
+            applyLayout();
+          } else {
+            host.removeAttribute('id');
+            documentStyle.disabled = true;
+          }
+        },
         exitPreviewFullscreen: () => setPreviewFullscreen(false, false),
         setTheme(value) { theme = normalizeLocalTextStudioTheme(value); applyTheme(); renderPreview(); },
         dispose() { if (disposed) return; disposed = true; rollback(); delete document[TOKEN]; }

@@ -4,10 +4,10 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 let settings = {},
   session = {},
-  tab = { id: 2, url: 'file:///D:/notes/a.md' },
+  tab = { id: 2, windowId: 1, index: 0, url: 'file:///D:/notes/a.md' },
   allowed = true,
   updates = [];
-const event = () => ({ addListener() {} });
+const event = () => ({ listeners: [], addListener(listener) { this.listeners.push(listener); } });
 globalThis.chrome = {
   extension: { isAllowedFileSchemeAccess: async () => allowed },
   storage: {
@@ -26,18 +26,19 @@ globalThis.chrome = {
     update: async (id, value) => {
       updates.push([id, value]);
     },
+    onCreated: event(),
     onUpdated: event(),
     onRemoved: event()
   },
   webNavigation: { onBeforeNavigate: event() },
   action: { onClicked: event() },
-  runtime: { getURL: (name) => 'chrome-extension://test/' + name, onMessage: event() }
+  runtime: { getURL: (name) => 'chrome-extension://test/' + name, getContexts: async () => [], onMessage: event() }
 };
 const { redirect } = await import('../extension/background.js');
 const reset = () => {
   settings = {};
   session = {};
-  tab = { id: 2, url: 'file:///D:/notes/a.md' };
+  tab = { id: 2, windowId: 1, index: 0, url: 'file:///D:/notes/a.md' };
   allowed = true;
   updates = [];
 };
@@ -146,4 +147,117 @@ test('MDC navigation and content bridge use the same case-insensitive text route
     assert.equal(messages[0].type, 'capture');
     assert.equal(messages[0].href, tab.url);
   }
+});
+
+async function withWorkspace(run) {
+  const originals = { get: chrome.tabs.get, remove: chrome.tabs.remove,
+    contexts: chrome.runtime.getContexts, message: chrome.runtime.sendMessage };
+  const workspace = { id: 9, index: 0, windowId: 1 };
+  const context = { contextType: 'TAB', tabId: 9, windowId: 1, frameId: 0,
+    documentId: 'workspace-document', documentUrl: 'chrome-extension://test/studio.html' };
+  const removed = [];
+  chrome.tabs.get = async id => id === 9 ? workspace : tab;
+  chrome.tabs.remove = async id => { removed.push(id); };
+  chrome.runtime.getContexts = async filter =>
+    (!filter.windowIds || filter.windowIds.includes(context.windowId)) &&
+    (!filter.tabIds || filter.tabIds.includes(context.tabId)) &&
+    (!filter.documentIds || filter.documentIds.includes(context.documentId)) ? [context] : [];
+  chrome.runtime.sendMessage = async () => ({ opened: true });
+  try { await run({ removed, workspace, context }); } finally {
+    chrome.tabs.get = originals.get;
+    chrome.tabs.remove = originals.remove;
+    chrome.runtime.getContexts = originals.contexts;
+    chrome.runtime.sendMessage = originals.message;
+  }
+}
+
+test('external entry reuses a verified same-window workspace without closing an existing source tab', async () => {
+  reset();
+  await withWorkspace(async ({ removed }) => {
+    assert.equal(await redirect(2, tab.url), true);
+    assert.deepEqual(removed, []);
+    assert.deepEqual(updates, [[9, { active: true }]]);
+    assert.deepEqual(settings.recentExternalFiles, [tab.url]);
+  });
+});
+
+test('only a newly observed file tab closes, and only after the destination acknowledges opening', async () => {
+  reset();
+  await withWorkspace(async ({ removed }) => {
+    chrome.tabs.onCreated.listeners[0](tab);
+    let acknowledge;
+    chrome.runtime.sendMessage = () => new Promise(resolve => { acknowledge = resolve; });
+    const opening = redirect(2, tab.url);
+    while (!acknowledge) await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(removed, []);
+    acknowledge({ opened: true });
+    assert.equal(await opening, true);
+    assert.deepEqual(removed, [2]);
+  });
+});
+
+test('failed handoff preserves the incoming tab and falls back to its own workspace', async () => {
+  reset();
+  await withWorkspace(async ({ removed }) => {
+    chrome.tabs.onCreated.listeners[0](tab);
+    chrome.runtime.sendMessage = async () => ({ opened: false });
+    assert.equal(await redirect(2, tab.url), true);
+    assert.deepEqual(removed, []);
+    assert.equal(updates[0][0], 2);
+    assert.match(updates[0][1].url, /studio\.html#/);
+  });
+});
+
+test('a source navigation during handoff is never closed or replaced', async () => {
+  reset();
+  await withWorkspace(async ({ removed }) => {
+    chrome.tabs.onCreated.listeners[0](tab);
+    chrome.runtime.sendMessage = async () => {
+      tab.url = 'https://example.org/user-navigation';
+      return { opened: true };
+    };
+    assert.equal(await redirect(2, 'file:///D:/notes/a.md'), false);
+    assert.deepEqual(removed, []);
+    assert.ok(updates.every(([id, value]) => id !== 2 || !value.url));
+  });
+});
+
+test('a workspace in another window is not a routing target', async () => {
+  reset();
+  await withWorkspace(async ({ removed, context, workspace }) => {
+    context.windowId = workspace.windowId = 8;
+    assert.equal(await redirect(2, tab.url), true);
+    assert.deepEqual(removed, []);
+    assert.equal(updates[0][0], 2);
+  });
+});
+
+test('ready registration accepts only an exact top-level Studio document identity', () => {
+  const listener = chrome.runtime.onMessage.listeners[0];
+  const studio = chrome.runtime.getURL('studio.html');
+  const sender = { url: studio + '#file', frameId: 0, documentId: 'ready-document', tab: { id: 9 } };
+  let response;
+  assert.equal(listener({ type: 'studioReady' }, sender, value => { response = value; }), false);
+  assert.deepEqual(response, { documentId: 'ready-document' });
+  for (const invalid of [
+    { ...sender, url: studio + '.evil' },
+    { ...sender, url: studio + '?file=1' },
+    { ...sender, url: 'https://test/studio.html' },
+    { ...sender, frameId: 1 },
+    { ...sender, documentId: undefined },
+    { ...sender, tab: undefined }
+  ]) {
+    assert.notEqual(listener({ type: 'studioReady' }, invalid, () => assert.fail('untrusted ready sender')), true);
+  }
+  for (const url of [studio + '.evil', studio + '?file=1', 'https://test/studio.html'])
+    assert.notEqual(listener({ type: 'native', href: 'file:///D:/notes.md' }, { ...sender, url },
+      () => assert.fail('untrusted native sender')), true);
+});
+
+test('workspace runtime and manifest do not restore the retired automatic grouping mechanism', async () => {
+  const background = await readFile(new URL('../extension/background.js', import.meta.url), 'utf8');
+  const router = await readFile(new URL('../extension/workspace-routing.js', import.meta.url), 'utf8');
+  const manifest = JSON.parse(await readFile(new URL('../extension/manifest.json', import.meta.url), 'utf8'));
+  assert.doesNotMatch(background + router, /createStudioTabGrouper|tabs\.group|tabGroups\./);
+  assert.equal(manifest.permissions.includes('tabGroups'), false);
 });

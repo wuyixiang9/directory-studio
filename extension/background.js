@@ -1,14 +1,18 @@
 import { localURL, fileKind } from './model.js';
 import { createRecentExternalRecorder } from './recent-files.js';
+import { createWorkspaceRouter, isStudioURL } from './workspace-routing.js';
 
 // All listeners are registered synchronously so MV3 can wake a stopped worker.
 const tabJobs = new Map();
 const recordRecentExternal = createRecentExternalRecorder(chrome.storage.local);
+const workspaces = createWorkspaceRouter(chrome);
+const incomingTabs = new Map();
 export async function redirect(tabId, input) {
   if (!Number.isInteger(tabId) || tabId < 0) return false;
   const href = localURL(input);
   if (!href || !fileKind(href)) {
     tabJobs.delete(tabId);
+    incomingTabs.delete(tabId);
     return false;
   }
   const job = Symbol();
@@ -30,19 +34,46 @@ export async function redirect(tabId, input) {
     const tab = await chrome.tabs.get(tabId);
     const current = localURL(tab.pendingUrl || tab.url);
     if (current !== href || tabJobs.get(tabId) !== job) return false;
-    await chrome.tabs.update(tabId, {
-      url: chrome.runtime.getURL('studio.html') + '#' + encodeURIComponent(href)
-    });
+    const currentNavigation = async () => {
+      const latest = await chrome.tabs.get(tabId);
+      return tabJobs.get(tabId) === job && localURL(latest.pendingUrl || latest.url) === href;
+    };
+    const delivered = await workspaces.open(tab.windowId, href, tabId, currentNavigation);
+    if (!await currentNavigation()) return false;
+    if (delivered) {
+      // Only a tab observed at creation with this exact file URL is disposable.
+      // Existing tabs, restored tabs and unknown origins are never closed.
+      const incoming = incomingTabs.get(tabId);
+      if (incoming?.href === href && incoming.expires > Date.now()) {
+        incomingTabs.delete(tabId);
+        await chrome.tabs.remove(tabId).catch(() => {});
+      }
+    } else {
+      await chrome.tabs.update(tabId, {
+        url: chrome.runtime.getURL('studio.html') + '#' + encodeURIComponent(href)
+      });
+    }
     await recordRecentExternal(href);
     return true;
   } catch {
     return false;
   } finally {
-    if (tabJobs.get(tabId) === job) tabJobs.delete(tabId);
+    if (tabJobs.get(tabId) === job) {
+      tabJobs.delete(tabId);
+      incomingTabs.delete(tabId);
+    }
   }
 }
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
-  if (details.frameId === 0) void redirect(details.tabId, details.url);
+  if (details.frameId === 0) {
+    const incoming = incomingTabs.get(details.tabId);
+    if (incoming && localURL(details.url) !== incoming.href) incomingTabs.delete(details.tabId);
+    void redirect(details.tabId, details.url);
+  }
+});
+chrome.tabs.onCreated.addListener((tab) => {
+  const href = localURL(tab.pendingUrl || tab.url);
+  if (href && fileKind(href)) incomingTabs.set(tab.id, { href, expires: Date.now() + 10000 });
 });
 chrome.tabs.onUpdated.addListener((id, change) => {
   if (change.url) void redirect(id, change.url);
@@ -50,13 +81,20 @@ chrome.tabs.onUpdated.addListener((id, change) => {
 chrome.tabs.onRemoved.addListener((id) => {
   void chrome.storage.session.remove('native.' + id);
   tabJobs.delete(id);
+  incomingTabs.delete(id);
 });
-chrome.action.onClicked.addListener(() => {
-  void chrome.tabs.create({ url: chrome.runtime.getURL('studio.html') });
+chrome.action.onClicked.addListener((tab) => {
+  void (async () => {
+    const windowId = tab?.windowId ?? (await chrome.windows.getLastFocused()).id;
+    await workspaces.focus(windowId);
+  })().catch(() => {});
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  const ownPage =
-    !sender.tab?.url?.startsWith('file:') && sender.url?.startsWith(chrome.runtime.getURL('studio.html'));
+  const ownPage = isStudioURL(sender.url, chrome.runtime.getURL('studio.html'));
+  if (message?.type === 'studioReady' && ownPage && sender.tab && sender.frameId === 0 && sender.documentId) {
+    respond({ documentId: sender.documentId });
+    return false;
+  }
   if (
     message?.type === 'capture' &&
     sender.tab &&

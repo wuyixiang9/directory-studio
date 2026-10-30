@@ -46,13 +46,15 @@ function fixture() {
     $: id => ({ 'local-text-studio': host, 'app-status': footer })[id],
     make: (_tag, className) => new Element(className),
     releaseEditorStatus: null,
-    editor: { dispose() {
+    editor: { setActive() {}, dispose() {
       assert.deepEqual(details.children, labels, 'Return labels before their owner disposes');
       assert.equal(notice.parentNode, host);
       assert.deepEqual(footer.children, [status, loading], 'Never destroy persistent shell IDs');
       disposed++;
     } }
   });
+  context.openDocuments = new Map([['file', { api: context.editor }]]);
+  vm.runInContext(source.slice(source.indexOf('function parkEditor()'), source.indexOf('async function closeDocument(')), context);
   vm.runInContext(source.slice(start, end), context);
   return { context, host, details, notice, labels, footer, status, loading, disposed: () => disposed };
 }

@@ -66,12 +66,116 @@ const narrowSidebar = window.matchMedia('(max-width: 700px)');
 const sidebarPreference = () =>
   narrowSidebar.matches ? 'extension.sidebarNarrowCollapsed' : 'extension.sidebarCollapsed';
 function applySidebar() {
+  finishSidebarResize(false);
   const collapsed = preferences.get(sidebarPreference(), narrowSidebar.matches) === true;
-  if (collapsed && $('sidebar').contains(document.activeElement)) $('toggle-sidebar').focus();
+  if ((collapsed && $('sidebar').contains(document.activeElement)) ||
+      ((collapsed || narrowSidebar.matches) && document.activeElement === $('sidebar-resize'))) $('toggle-sidebar').focus();
   $('sidebar').hidden = collapsed;
+  $('sidebar-resize').hidden = collapsed;
   $('toggle-sidebar').setAttribute('aria-expanded', String(!collapsed));
-  $('toggle-sidebar').title = collapsed ? '展开常用目录' : '收起常用目录';
+  $('toggle-sidebar').title = collapsed ? '展开文件与目录' : '收起文件与目录';
   menu.close();
+  applySidebarWidth();
+}
+const sidebarSections = [
+  ['open-heading', 'open-content', 'extension.openCollapsed'],
+  ['favorites-heading', 'favorites', 'extension.favoritesCollapsed'],
+  ['recent-heading', 'recent-files', 'extension.recentCollapsed']
+];
+function applySidebarSection(buttonId, contentId, key) {
+  const collapsed = preferences.get(key, false) === true;
+  const button = $(buttonId);
+  const content = $(contentId);
+  if (collapsed && content.contains(document.activeElement)) button.focus();
+  content.hidden = collapsed;
+  button.setAttribute('aria-expanded', String(!collapsed));
+}
+let sidebarWidth = preferences.get('extension.sidebarWidth', null);
+if (typeof sidebarWidth !== 'number' || !Number.isFinite(sidebarWidth)) sidebarWidth = null;
+let sidebarDrag = null;
+function sidebarWidthBounds() {
+  return { min: 170, max: Math.max(170, Math.min(480, $('sidebar').parentElement.clientWidth - 326)) };
+}
+function applySidebarWidth() {
+  const { min, max } = sidebarWidthBounds();
+  const fallback = window.innerWidth <= 1000 ? 170 : 220;
+  const width = Math.round(Math.max(min, Math.min(max, sidebarWidth ?? fallback)));
+  $('sidebar').style.setProperty('--sidebar-width', width + 'px');
+  const handle = $('sidebar-resize');
+  handle.setAttribute('aria-valuemin', String(min));
+  handle.setAttribute('aria-valuemax', String(max));
+  handle.setAttribute('aria-valuenow', String(width));
+  handle.tabIndex = narrowSidebar.matches || $('sidebar').hidden ? -1 : 0;
+  return width;
+}
+function finishSidebarResize(commit) {
+  if (!sidebarDrag) return;
+  const drag = sidebarDrag;
+  sidebarDrag = null;
+  delete document.body.dataset.sidebarResizing;
+  if (!commit) sidebarWidth = drag.width;
+  else preferences.set('extension.sidebarWidth', sidebarWidth);
+  const handle = $('sidebar-resize');
+  if (handle.hasPointerCapture(drag.pointerId)) handle.releasePointerCapture(drag.pointerId);
+  applySidebarWidth();
+}
+function setupSidebar() {
+  for (const section of sidebarSections) {
+    applySidebarSection(...section);
+    $(section[0]).addEventListener('click', () => {
+      preferences.set(section[2], $(section[0]).getAttribute('aria-expanded') === 'true');
+      applySidebarSection(...section);
+      menu.close();
+    });
+  }
+  const handle = $('sidebar-resize');
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || !event.isPrimary || narrowSidebar.matches || $('sidebar').hidden || document.body.dataset.previewFullscreen === 'true') return;
+    event.preventDefault();
+    finishSidebarResize(false);
+    handle.setPointerCapture(event.pointerId);
+    sidebarDrag = { pointerId: event.pointerId, x: event.clientX, start: applySidebarWidth(), width: sidebarWidth };
+    document.body.dataset.sidebarResizing = 'true';
+    handle.focus();
+  });
+  handle.addEventListener('pointermove', (event) => {
+    if (sidebarDrag?.pointerId !== event.pointerId) return;
+    const { min, max } = sidebarWidthBounds();
+    sidebarWidth = Math.max(min, Math.min(max, sidebarDrag.start + event.clientX - sidebarDrag.x));
+    applySidebarWidth();
+  });
+  handle.addEventListener('pointerup', (event) => {
+    if (sidebarDrag?.pointerId === event.pointerId) finishSidebarResize(true);
+  });
+  for (const type of ['pointercancel', 'lostpointercapture'])
+    handle.addEventListener(type, (event) => {
+      if (sidebarDrag?.pointerId === event.pointerId) finishSidebarResize(false);
+    });
+  handle.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && sidebarDrag) {
+      event.preventDefault();
+      finishSidebarResize(false);
+      return;
+    }
+    if (narrowSidebar.matches || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    finishSidebarResize(false);
+    const { min, max } = sidebarWidthBounds();
+    const step = event.shiftKey ? 40 : 10;
+    sidebarWidth = event.key === 'Home' ? min : event.key === 'End' ? max :
+      Math.max(min, Math.min(max, applySidebarWidth() + (event.key === 'ArrowLeft' ? -step : step)));
+    applySidebarWidth();
+    preferences.set('extension.sidebarWidth', sidebarWidth);
+  });
+  window.addEventListener('resize', () => {
+    finishSidebarResize(false);
+    if (narrowSidebar.matches && document.activeElement === handle) $('toggle-sidebar').focus();
+    applySidebarWidth();
+  });
+  for (const type of ['blur', 'pagehide']) window.addEventListener(type, () => finishSidebarResize(false));
+  new MutationObserver(() => {
+    if (document.body.dataset.previewFullscreen === 'true') finishSidebarResize(false);
+  }).observe(document.body, { attributes: true, attributeFilter: ['data-preview-fullscreen'] });
 }
 const state = {
   href: '',
@@ -93,9 +197,87 @@ let editor = null,
   recentFiles = [],
   recentRevision = 0,
   historyIndex = 0,
-  historyRestore = null,
   loadingTimer = null,
   releaseEditorStatus = null;
+const openDocuments = new Map();
+let documentSequence = 0;
+function renderOpenDocuments() {
+  const tokens = $('open-search').value.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+  const fragment = document.createDocumentFragment();
+  for (const [href, item] of openDocuments) {
+    const fullPath = item.data.picked ? '已授权文件（浏览器不提供绝对路径）' : pathLabel(href);
+    const name = item.data.name || pathLabel(href).split(/[\\/]/).pop();
+    if (!tokens.every(token => (name + ' ' + fullPath).toLocaleLowerCase().includes(token))) continue;
+    const row = make('div', 'open-document');
+    row.setAttribute('aria-current', String(href === state.href));
+    const link = make('button', 'open-document-link');
+    link.type = 'button';
+    link.title = fullPath;
+    link.append(make('strong', '', name + (item.api?.isDirty() ? ' *' : '')), make('small', '', fullPath));
+    link.addEventListener('click', () => void navigate(href));
+    const close = make('button', '', '×');
+    close.type = 'button';
+    close.setAttribute('aria-label', '关闭 ' + name);
+    close.addEventListener('click', () => void closeDocument(href));
+    row.append(link, close);
+    fragment.append(row);
+  }
+  if (!fragment.childNodes.length) fragment.append(make('p', '', openDocuments.size ? '没有匹配的已打开文件。' : '打开的文件会保留在这里。'));
+  $('open-documents').replaceChildren(fragment);
+  $('open-count').textContent = String(openDocuments.size);
+}
+function canClose(items) {
+  if (items.some(item => item.api?.isSaving())) {
+    status('正在保存，请等待保存结束。');
+    return false;
+  }
+  return !items.some(item => item.api?.isDirty()) || confirm('有未保存的修改。关闭并丢弃这些修改？');
+}
+function parkEditor() {
+  releaseEditorStatus?.();
+  releaseEditorStatus = null;
+  editor?.setActive(false);
+  editor = null;
+  setPreviewFullscreen(false);
+}
+function cancelNavigation() {
+  ++generation;
+  readJob?.abort();
+  clearTimeout(loadingTimer);
+  $('loading').hidden = true;
+  $('main').setAttribute('aria-busy', 'false');
+  $('editor-slot').inert = false;
+}
+async function closeDocument(href) {
+  const item = openDocuments.get(href);
+  if (!item || !canClose([item])) return;
+  cancelNavigation();
+  const active = href === state.href;
+  if (active) {
+    viewer.close(false);
+    parkEditor();
+  }
+  item.api?.dispose();
+  item.mount?.remove();
+  openDocuments.delete(href);
+  if (active) {
+    const next = [...openDocuments.keys()].pop();
+    state.href = '';
+    documentData = null;
+    if (next) await navigate(next, { replace: true });
+    else {
+      state.directory = '';
+      history.replaceState({ index: historyIndex, href: '' }, '', studioURL);
+      setSections('welcome');
+      $('breadcrumbs').replaceChildren();
+      $('path').value = '';
+      document.title = 'Directory Studio';
+      status('就绪');
+      renderFavorites();
+    }
+  }
+  renderOpenDocuments();
+}
 const viewer = shared.directoryStudioCreateImageViewer({
   root: $('main'),
   restoreFocus: (href) => {
@@ -151,11 +333,9 @@ function setPreviewFullscreen(value) {
   }
 }
 function disposeEditor() {
-  releaseEditorStatus?.();
-  releaseEditorStatus = null;
-  editor?.dispose();
-  setPreviewFullscreen(false);
-  editor = null;
+  parkEditor();
+  for (const item of openDocuments.values()) item.api?.dispose();
+  openDocuments.clear();
 }
 function targetHash(href) {
   return '#' + encodeURIComponent(href);
@@ -171,11 +351,7 @@ function validTarget(value) {
   return localURL(value) || (/^picked:[a-f0-9-]{36}$/.test(value) ? value : null);
 }
 function canLeave() {
-  if (editor?.isSaving()) {
-    status('正在保存，请等待保存结束。');
-    return false;
-  }
-  return !editor?.isDirty() || confirm('当前文件有未保存的修改。离开并丢弃这些修改？');
+  return canClose([...openDocuments.values()]);
 }
 function captureContext() {
   const snapshot = {
@@ -196,24 +372,32 @@ function captureContext() {
     location.href
   );
 }
-async function navigate(value, { replace = false, picked = null } = {}) {
-  const href = validTarget(value);
+async function navigate(value, { replace = false, picked = null, preloaded = null, context = null } = {}) {
+  let href = validTarget(value);
   if (!href) {
     status('请输入有效的本地 file 路径或 Windows 路径。');
     return;
   }
-  if (!canLeave()) return;
+  if (picked?.handle) {
+    for (const [existing, item] of openDocuments) {
+      if (item.data.handle && await picked.handle.isSameEntry(item.data.handle)) {
+        href = existing;
+        picked = null;
+        break;
+      }
+    }
+  }
   if (!href.startsWith('picked:') && !fileKind(href)) {
     await nativeOpen(href);
     return;
   }
   captureContext();
-  if (replace) history.replaceState({ index: historyIndex, href }, '', targetHash(href));
+  if (replace || href === state.href) history.replaceState({ index: historyIndex, href }, '', targetHash(href));
   else {
     historyIndex++;
     history.pushState({ index: historyIndex, href }, '', targetHash(href));
   }
-  await renderTarget(href, null, picked);
+  return await renderTarget(href, context, picked || preloaded);
 }
 async function loadEditor() {
   if (!editorLoader)
@@ -279,6 +463,8 @@ function showPath(href, data) {
   });
 }
 async function renderTarget(href, context = null, preloaded = null) {
+  const cached = openDocuments.get(href);
+  context ||= cached?.context;
   const token = ++generation;
   readJob?.abort();
   readJob = new AbortController();
@@ -298,7 +484,7 @@ async function renderTarget(href, context = null, preloaded = null) {
     let kind = href.startsWith('picked:') ? 'text' : fileKind(href);
     let dir = kind === 'directory' ? href : kind === 'image' ? new URL('./', href).href : '';
     const result =
-      preloaded ||
+      cached?.data || preloaded ||
       (href.startsWith('picked:') ? await readPicked(href) : await readLocal(dir || href, { signal }));
     if (token !== generation) return;
     if (kind === 'text' && result.kind === 'directory') {
@@ -309,29 +495,43 @@ async function renderTarget(href, context = null, preloaded = null) {
     }
     const css = kind === 'text' ? await loadEditor() : null;
     if (token !== generation) return;
-    // Keep the old editor alive until replacement data is ready. A failed read cannot discard edits.
-    disposeEditor();
+    // Retain each editor in the document: detaching would destroy diagram iframe state.
+    let item = cached;
+    if (kind === 'text' && !item) {
+      const mount = make('div', 'workspace-document');
+      mount.dataset.document = String(++documentSequence);
+      $('editor-slot').append(mount);
+      item = { data: result, mount, api: null };
+      try {
+        window.mountStudioEditor({
+          href: result.picked ? 'file:///__authorized__/' + encodeURIComponent(result.name) : href,
+          text: result.text,
+          mount,
+          css,
+          save: (text) => persistDocument(href, result, text),
+          setPreviewFullscreen,
+          ready: (api) => { item.api = api; },
+          changed: () => renderOpenDocuments()
+        });
+        if (!item.api) throw Error('编辑器未能启动。');
+      } catch (error) {
+        item.api?.dispose();
+        mount.remove();
+        throw error;
+      }
+    }
+    parkEditor();
     documentData = null;
-    $('editor-slot').replaceChildren();
     state.href = href;
     state.directory = dir;
     showPath(href, result);
     if (kind === 'text') {
       setSections('editor-slot');
       documentData = result;
-      const editorHref = result.picked ? 'file:///__authorized__/' + encodeURIComponent(result.name) : href;
-      window.mountStudioEditor({
-        href: editorHref,
-        text: result.text,
-        mount: $('editor-slot'),
-        css,
-        save: (text) => persistDocument(href, result, text),
-        setPreviewFullscreen,
-        ready: (api) => {
-          editor = api;
-        }
-      });
-      if (!editor) throw Error('编辑器未能启动。');
+      openDocuments.set(href, item);
+      editor = item.api;
+      editor.setActive(true);
+      editor.setTheme(document.documentElement.dataset.theme);
       releaseEditorStatus = attachEditorStatus();
       status('');
     } else {
@@ -353,11 +553,14 @@ async function renderTarget(href, context = null, preloaded = null) {
           .find((link) => linkTarget(link) === context.focus)
           ?.focus({ preventScroll: true });
       if (kind === 'image') viewer.open(shared.directoryStudioImageSequence(filteredEntries()), href);
+      if (kind === 'image') openDocuments.set(href, { data: result, context });
       status('本地目录 · ' + state.entries.length + ' 项 · 不递归扫描');
     }
     document.title = (result.picked ? result.name : pathLabel(href)) + ' — Directory Studio';
     renderFavorites();
+    renderOpenDocuments();
     captureContext();
+    return true;
   } catch (error) {
     if (token !== generation || error.name === 'AbortError') return;
     // Failed navigation restores the previous usable document and URL.
@@ -506,6 +709,7 @@ $('toggle-sidebar').addEventListener('click', () => {
   applySidebar();
 });
 narrowSidebar.addEventListener('change', applySidebar);
+setupSidebar();
 applySidebar();
 $('path-form').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -589,7 +793,7 @@ $('retry').addEventListener('click', async () => {
   }
 });
 $('pick-file').addEventListener('click', async () => {
-  if (!canLeave()) return;
+  // Picking another file keeps every open editor and its unsaved edits.
   try {
     const key = await pickDocument();
     const data = await readPicked(key);
@@ -611,20 +815,20 @@ document.addEventListener('click', (event) => {
   if (event.defaultPrevented || event.button !== 0) return;
   event.preventDefault();
   if ((link.dataset.studioFragment === 'true' || localURL(link.href) && link.hash) && href === state.href) return;
-  if (event.ctrlKey || event.metaKey || event.shiftKey) {
-    void chrome.tabs.create({
-      url: fileKind(href) ? chrome.runtime.getURL('studio.html') + targetHash(href) : href,
-      active: event.shiftKey
-    });
+  const independentTarget = link.target === '_blank' && !link.classList.contains('iv-original');
+  if (event.ctrlKey || event.metaKey || event.shiftKey || independentTarget) {
+    const url = fileKind(href) ? studioURL + targetHash(href) : href;
+    if (event.shiftKey && !event.ctrlKey && !event.metaKey) void chrome.windows.create({ url });
+    else void chrome.tabs.create({ url, active: Boolean(event.shiftKey || (!event.ctrlKey && !event.metaKey && independentTarget)) });
     return;
   }
   if (link.classList.contains('iv-original')) {
     void nativeOpen(href);
     return;
   }
-  if (fileKind(href) === 'image' && state.directory && link.closest('#entries'))
-    viewer.open(shared.directoryStudioImageSequence(filteredEntries()), href);
-  else void navigate(href);
+  if (fileKind(href) === 'image' && state.directory && link.closest('#entries')) {
+    void navigate(href, { preloaded: { entries: state.entries }, context: { ...state, scroll: $('entries').scrollTop } });
+  } else void navigate(href);
 });
 document.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.isComposing) return;
@@ -650,22 +854,17 @@ window.addEventListener('popstate', (event) => {
   // Such an external entry has no app state; adopt it instead of restoring the old URL.
   const inbound = validTarget(fromHash());
   const nextIndex = Number.isInteger(event.state?.index) ? event.state.index : historyIndex + 1;
-  if (historyRestore !== null && nextIndex === historyRestore) {
-    historyRestore = null;
-    return;
-  }
-  if (!canLeave()) {
-    historyRestore = historyIndex;
-    history.go(historyIndex - nextIndex);
-    return;
-  }
+  // History switches views without discarding any retained editor.
   historyIndex = nextIndex;
   const href = validTarget(event.state?.href) || inbound;
   if (!Number.isInteger(event.state?.index))
     history.replaceState({ index: historyIndex, href: href || '' }, '', location.href);
   if (href) void renderTarget(href, event.state?.context);
   else {
-    disposeEditor();
+    cancelNavigation();
+    viewer.close(false);
+    menu.close();
+    parkEditor();
     documentData = null;
     state.href = '';
     state.directory = '';
@@ -674,13 +873,16 @@ window.addEventListener('popstate', (event) => {
     $('path').value = '';
     status('就绪');
     renderFavorites();
+    renderOpenDocuments();
+    document.title = 'Directory Studio';
   }
 });
-window.addEventListener('pagehide', () => {
+window.addEventListener('pagehide', (event) => {
   clearTimeout(loadingTimer);
   readJob?.abort();
   viewer.close(false);
   menu.close();
+  if (!event.persisted) disposeEditor();
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
@@ -704,7 +906,22 @@ $('capture').checked = settings.autoCapture !== false;
 renderFavorites();
 renderRecentFiles();
 await updatePermission();
+$('open-search').addEventListener('input', renderOpenDocuments);
+$('independent').addEventListener('click', () => {
+  void chrome.tabs.create({ url: studioURL + (state.href ? targetHash(state.href) : '') });
+});
+renderOpenDocuments();
+let workspaceId = null;
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (sender.id !== chrome.runtime.id || message?.type !== 'workspaceOpen' || message.recipient !== workspaceId) return;
+  const href = localURL(message.href);
+  if (!href || !fileKind(href)) { respond({ opened: false }); return; }
+  void navigate(href).then(opened => respond({ opened: opened === true }), () => respond({ opened: false }));
+  return true;
+});
 historyIndex = Number.isInteger(history.state?.index) ? history.state.index : 0;
 const initial = validTarget(fromHash());
 history.replaceState({ ...history.state, index: historyIndex, href: initial || '' }, '', location.href);
 if (initial) await renderTarget(initial, history.state.context);
+const registration = await chrome.runtime.sendMessage({ type: 'studioReady' }).catch(() => null);
+workspaceId = registration?.documentId;

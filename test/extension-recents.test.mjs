@@ -15,9 +15,9 @@ const select = (start, end) => {
   return source.slice(first, last);
 };
 
-function link(href, { original = false, download = false, entry = false } = {}) {
+function link(href, { original = false, download = false, entry = false, target = '' } = {}) {
   return {
-    href, dataset: {}, title: '', textContent: '',
+    href, target, dataset: {}, title: '', textContent: '',
     get hash() { return new URL(this.href).hash; },
     classList: { contains: (name) => original && name === 'iv-original' },
     hasAttribute: (name) => download && name === 'download',
@@ -124,32 +124,46 @@ test('recent list uses text labels, full path titles and internal routes without
   assert.equal(children[0].tag, 'p');
 });
 
-test('recent ordinary clicks use dirty-protected navigation, images never reuse the current directory sequence', () => {
+test('recent clicks switch workspace files while modified clicks preserve independent opening intent', () => {
   let handler;
   const navigated = [];
   const opened = [];
-  let clean = false;
+  const native = [];
   const context = vm.createContext({
+    studioURL,
     document: { addEventListener(type, callback) { if (type === 'click') handler = callback; } },
     documentData: null, state: { href: 'file:///D:/current.md', directory: 'file:///D:/current/' },
     linkTarget: (anchor) => studioLinkTarget(anchor.href, studioURL), localURL: (href) => href.startsWith('file:') ? href : null,
     fileKind: (href) => href.endsWith('.png') ? 'image' : 'text',
-    navigate(href) { if (clean) navigated.push(href); }, nativeOpen() {}, status() {},
+    navigate(href) { navigated.push(href); }, nativeOpen(href) { native.push(href); }, status() {},
     shared: { directoryStudioImageSequence: (value) => value }, filteredEntries: () => [],
     viewer: { open(...args) { opened.push(args); } },
-    chrome: { runtime: { getURL: () => studioURL }, tabs: { create(value) { opened.push(value); } } },
+    chrome: { runtime: { getURL: () => studioURL }, tabs: { create(value) { opened.push(value); } },
+      windows: { create(value) { opened.push({ window: value }); } } },
     targetHash: (href) => '#' + encodeURIComponent(href)
   });
   vm.runInContext(select("document.addEventListener('click'", "document.addEventListener('keydown'"), context);
   const image = link(studioURL + '#' + encodeURIComponent('file:///D:/other/picture.png'));
   const event = { target: { closest: () => image }, button: 0, preventDefault() {}, defaultPrevented: false };
   handler(event);
-  assert.deepEqual(navigated, []);
-  assert.deepEqual(opened, []);
-  clean = true;
-  handler(event);
   assert.deepEqual(navigated, ['file:///D:/other/picture.png']);
   handler({ ...event, ctrlKey: true });
   assert.equal(opened[0].url, image.href);
+  handler({ ...event, shiftKey: true });
+  assert.equal(opened[1].window.url, image.href);
+  const original = link('file:///D:/other/picture.png', { original: true, target: '_blank' });
+  const originalEvent = { ...event, target: { closest: () => original } };
+  handler(originalEvent);
+  assert.deepEqual(native, ['file:///D:/other/picture.png']);
+  assert.equal(opened.length, 2);
+  handler({ ...originalEvent, ctrlKey: true });
+  assert.equal(opened[2].url, image.href);
+  assert.equal(opened[2].active, false);
+  handler({ ...originalEvent, shiftKey: true });
+  assert.equal(opened[3].window.url, image.href);
+  const independent = link(image.href, { target: '_blank' });
+  handler({ ...event, target: { closest: () => independent } });
+  assert.equal(opened[4].url, image.href);
+  assert.equal(opened[4].active, true);
   assert.equal(RECENT_EXTERNAL_FILES_KEY, 'recentExternalFiles');
 });

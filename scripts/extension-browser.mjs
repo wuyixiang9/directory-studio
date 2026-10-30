@@ -75,6 +75,23 @@ try {
   await check('extension loads with native file access', async () =>
     assert.equal(await page.evaluate(() => chrome.extension.isAllowedFileSchemeAccess()), true)
   );
+  const nativeTab = target => target.evaluate(() => chrome.tabs.getCurrent());
+  await check('Studio never creates native groups and preserves a user-owned group on reload', async () => {
+    assert.equal((await nativeTab(page)).groupId, -1);
+    const child = await context.newPage();
+    watchPage(child);
+    try {
+      await child.goto(studio);
+      await expect(child.locator('#welcome')).toBeVisible();
+      assert.equal((await nativeTab(child)).groupId, -1);
+      const groupId = await child.evaluate(async () => chrome.tabs.group({ tabIds: [(await chrome.tabs.getCurrent()).id] }));
+      await child.reload();
+      await expect(child.locator('#welcome')).toBeVisible();
+      assert.equal((await nativeTab(child)).groupId, groupId);
+    } finally {
+      await child.close();
+    }
+  });
   await check('theme selector persists all palettes across reloads', async () => {
     await expect(page.getByRole('combobox', { name: '主题', exact: true })).toBeVisible();
     assert.deepEqual(await page.locator('#theme option').evaluateAll((options) => options.map((option) => option.value)), ['light', 'dark', 'economist', 'vercel']);
@@ -98,6 +115,20 @@ try {
     await external(directory);
     await expect(page.locator('#directory')).toBeVisible();
     await expect(page.locator('.entry')).toHaveCount(160);
+  });
+  await check('external entry reaches the existing workspace without closing an already-open user tab', async () => {
+    const inbound = await context.newPage();
+    watchPage(inbound);
+    try {
+      await inbound.goto(directory + 'other.txt').catch(error => {
+        if (!/interrupted|ERR_ABORTED/.test(error.message)) throw error;
+      });
+      await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('other text');
+      assert.equal(inbound.isClosed(), false);
+      assert.equal(inbound.url(), directory + 'other.txt');
+      await page.locator('#up').click();
+      await expect(page.locator('#directory')).toBeVisible();
+    } finally { await inbound.close(); }
   });
   await check('shell sizing and narrow directory controls', async () => {
     const dimensions = await page.evaluate(() => {
@@ -178,6 +209,75 @@ try {
     await page.screenshot({ path: path.join(run, 'studio-directory-narrow-collapsed.png'), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 960 });
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+  await check('sidebar sections are independently keyboard collapsible and remembered', async () => {
+    const sections = [
+      ['open-heading', 'open-content'],
+      ['favorites-heading', 'favorites'],
+      ['recent-heading', 'recent-files']
+    ];
+    for (const [heading, content] of sections) {
+      await expect(page.locator('#' + heading)).toHaveAttribute('aria-expanded', 'true');
+      await page.locator('#' + heading).focus();
+      await page.keyboard.press('Space');
+      await expect(page.locator('#' + content)).toBeHidden();
+      await expect(page.locator('#' + heading)).toHaveAttribute('aria-expanded', 'false');
+    }
+    await expect(page.locator('#favorite')).toBeVisible();
+    await expect(page.locator('#independent')).toBeHidden();
+    await page.reload();
+    for (const [heading, content] of sections) {
+      await expect(page.locator('#' + content)).toBeHidden();
+      await page.locator('#' + heading).focus();
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#' + content)).toBeVisible();
+    }
+    await expect(page.locator('#independent')).toBeVisible();
+  });
+  await check('sidebar pointer and keyboard width persist with responsive limits and clean cancellation', async () => {
+    const handle = page.locator('#sidebar-resize');
+    const sidebar = page.locator('#sidebar');
+    const original = (await sidebar.boundingBox()).width;
+    let box = await handle.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + 30);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 100, box.y + 30, { steps: 4 });
+    assert.equal(Math.round((await sidebar.boundingBox()).width), original + 100);
+    await page.mouse.up();
+    await expect(page.locator('body')).not.toHaveAttribute('data-sidebar-resizing', 'true');
+    assert.equal(await page.evaluate(() => Number(JSON.parse(localStorage.getItem('extension.sidebarWidth')))), original + 100);
+    await page.reload();
+    assert.equal(Math.round((await sidebar.boundingBox()).width), original + 100);
+    box = await handle.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + 30);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 130, box.y + 30);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    assert.equal(Math.round((await sidebar.boundingBox()).width), original + 100);
+    await expect(page.locator('body')).not.toHaveAttribute('data-sidebar-resizing', 'true');
+    assert.equal(await handle.evaluate(node => node.hasPointerCapture(1)), false);
+    await handle.focus();
+    await page.keyboard.press('End');
+    await expect(handle).toHaveAttribute('aria-valuenow', '480');
+    await page.setViewportSize({ width: 720, height: 900 });
+    assert.ok((await page.locator('#main').boundingBox()).width >= 320);
+    assert.ok((await sidebar.boundingBox()).width <= 394);
+    await page.setViewportSize({ width: 320, height: 900 });
+    await expect(handle).toBeHidden();
+    await page.locator('#toggle-sidebar').click();
+    assert.ok((await sidebar.boundingBox()).width <= 320);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.locator('#toggle-sidebar').click();
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await expect(handle).toHaveAttribute('aria-valuenow', '480');
+    await handle.focus();
+    await page.keyboard.press('Home');
+    await expect(handle).toHaveAttribute('aria-valuenow', '170');
+    await page.keyboard.press('Shift+ArrowRight');
+    await expect(handle).toHaveAttribute('aria-valuenow', '210');
+    await page.evaluate(() => localStorage.removeItem('extension.sidebarWidth'));
+    await page.reload();
   });
   await check('all shell palettes match without gradients, resizing or lost interaction states', async () => {
     let baseline;
@@ -354,15 +454,15 @@ try {
   await check('text editor, Markdown, Mermaid and Markmap run offline under MV3 CSP', async () => {
     await page.locator('#search').fill('notes');
     await page.locator('.entry').click();
-    await expect(page.locator('.CodeMirror')).toBeVisible();
-    await expect(page.locator('.lts-mermaid-card')).toHaveAttribute('data-state', 'ready', {
+    await expect(page.locator('#local-text-studio .CodeMirror')).toBeVisible();
+    await expect(page.locator('#local-text-studio .lts-mermaid-card')).toHaveAttribute('data-state', 'ready', {
       timeout: 20000
     });
-    await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state', 'ready', {
+    await expect(page.locator('#local-text-studio .lts-markmap-card')).toHaveAttribute('data-state', 'ready', {
       timeout: 20000
     });
-    await page.locator('.lts-markmap-card').getByRole('button', { name: '全部展开' }).click();
-    await expect(page.frameLocator('.lts-markmap-frame').locator('.markmap-node')).toHaveCount(4);
+    await page.locator('#local-text-studio .lts-markmap-card').getByRole('button', { name: '全部展开' }).click();
+    await expect(page.frameLocator('#local-text-studio .lts-markmap-frame').locator('.markmap-node')).toHaveCount(4);
     assert.equal(await page.evaluate(() => window.pwned), undefined);
     assert.equal(await page.evaluate(() => window.documentIdentity), 'same-document');
     assert.deepEqual(requests, []);
@@ -391,58 +491,58 @@ try {
     const enter = page.getByRole('button', { name: '全屏预览', exact: true });
     const exit = page.getByRole('button', { name: '退出全屏预览 (Esc)', exact: true });
     await page.evaluate(() => {
-      window.fullscreenEditor = document.querySelector('.CodeMirror');
-      window.fullscreenDiagram = document.querySelector('.lts-markmap-frame');
-      window.fullscreenHeading = document.querySelector('.lts-preview h1');
+      window.fullscreenEditor = document.querySelector('#local-text-studio .CodeMirror');
+      window.fullscreenDiagram = document.querySelector('#local-text-studio .lts-markmap-frame');
+      window.fullscreenHeading = document.querySelector('#local-text-studio .lts-preview h1');
     });
     for (const layout of ['split', 'preview', 'edit']) {
       const label = { split: '分栏', preview: '预览', edit: '编辑' }[layout];
       await page.getByRole('button', { name: label, exact: true }).click();
       await enter.click();
       await expect(page.locator('body')).toHaveAttribute('data-preview-fullscreen', 'true');
-      await expect(page.locator('.lts-panes')).toHaveAttribute('data-layout', 'preview');
+      await expect(page.locator('#local-text-studio .lts-panes')).toHaveAttribute('data-layout', 'preview');
       await expect(exit).toBeFocused();
-      for (const selector of ['.topbar', '#path-form', '#sidebar', '#breadcrumbs', '#app-status', '.lts-toolbar', '.CodeMirror']) {
+      for (const selector of ['.topbar', '#path-form', '#sidebar', '#sidebar-resize', '#breadcrumbs', '#app-status', '#local-text-studio .lts-toolbar', '#local-text-studio .CodeMirror']) {
         await expect(page.locator(selector)).toBeHidden();
       }
-      const geometry = await page.locator('.lts-preview').boundingBox();
+      const geometry = await page.locator('#local-text-studio .lts-preview').boundingBox();
       assert.ok(geometry.x <= 1 && geometry.y <= 1 && geometry.width >= 1439 && geometry.height >= 959);
       assert.equal(await page.evaluate(() => document.fullscreenElement), null);
-      assert.equal(await page.evaluate(() => [...document.querySelectorAll('.topbar, #path-form, #sidebar, #breadcrumbs, #app-status, .lts-toolbar, .lts-editor')].every(node => node.inert)), true);
+      assert.equal(await page.evaluate(() => [...document.querySelectorAll('.topbar, #path-form, #sidebar, #breadcrumbs, #app-status, #local-text-studio .lts-toolbar, #local-text-studio .lts-editor')].every(node => node.inert)), true);
       for (let index = 0; index < 8; index++) {
         await page.keyboard.press('Tab');
-        assert.equal(await page.evaluate(() => !!document.activeElement.closest('.topbar, #path-form, #sidebar, #breadcrumbs, #app-status, .lts-toolbar, .lts-editor')), false);
+        assert.equal(await page.evaluate(() => !!document.activeElement.closest('.topbar, #path-form, #sidebar, #breadcrumbs, #app-status, #local-text-studio .lts-toolbar, #local-text-studio .lts-editor')), false);
       }
       // Includes Escape while keyboard focus is inside the sandboxed interactive diagram.
       if (layout === 'preview') {
-        await page.frameLocator('.lts-markmap-frame').locator('svg').click({ position: { x: 5, y: 5 } });
+        await page.frameLocator('#local-text-studio .lts-markmap-frame').locator('svg').click({ position: { x: 5, y: 5 } });
         await page.keyboard.press('Escape');
       } else {
         await exit.click();
       }
       await expect(page.locator('body')).not.toHaveAttribute('data-preview-fullscreen', 'true');
-      await expect(page.locator('.lts-panes')).toHaveAttribute('data-layout', layout);
+      await expect(page.locator('#local-text-studio .lts-panes')).toHaveAttribute('data-layout', layout);
       await expect(enter).toBeFocused();
       await expect(page.locator('.topbar')).toBeVisible();
       assert.equal(await page.evaluate(() =>
-        document.querySelector('.CodeMirror') === window.fullscreenEditor &&
-        document.querySelector('.lts-markmap-frame') === window.fullscreenDiagram &&
-        document.querySelector('.lts-preview h1') === window.fullscreenHeading), true);
+        document.querySelector('#local-text-studio .CodeMirror') === window.fullscreenEditor &&
+        document.querySelector('#local-text-studio .lts-markmap-frame') === window.fullscreenDiagram &&
+        document.querySelector('#local-text-studio .lts-preview h1') === window.fullscreenHeading), true);
     }
     await page.getByRole('button', { name: '分栏', exact: true }).click();
-    await expect(page.frameLocator('.lts-markmap-frame').locator('.markmap-node')).toHaveCount(4);
+    await expect(page.frameLocator('#local-text-studio .lts-markmap-frame').locator('.markmap-node')).toHaveCount(4);
   });
   await check('fullscreen preserves unsaved edits, history, theme and scroll without mounting another editor', async () => {
     await page.evaluate(() => {
-      const cm = document.querySelector('.CodeMirror').CodeMirror;
+      const cm = document.querySelector('#local-text-studio .CodeMirror').CodeMirror;
       window.fullscreenBeforeText = cm.getValue();
       cm.replaceRange('\n\n' + 'Fullscreen draft paragraph.\n\n'.repeat(100), { line: cm.lastLine(), ch: cm.getLine(cm.lastLine()).length }, undefined, '+input');
     });
-    await expect(page.locator('.lts-preview')).toContainText('Fullscreen draft paragraph.');
-    await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state', 'ready');
+    await expect(page.locator('#local-text-studio .lts-preview')).toContainText('Fullscreen draft paragraph.');
+    await expect(page.locator('#local-text-studio .lts-markmap-card')).toHaveAttribute('data-state', 'ready');
     await page.evaluate(() => {
-      const cm = document.querySelector('.CodeMirror').CodeMirror;
-      const preview = document.querySelector('.lts-preview');
+      const cm = document.querySelector('#local-text-studio .CodeMirror').CodeMirror;
+      const preview = document.querySelector('#local-text-studio .lts-preview');
       preview.scrollTop = 150;
       window.fullscreenDraft = {
         text: cm.getValue(), history: JSON.stringify(cm.getHistory()),
@@ -453,8 +553,8 @@ try {
     await page.getByRole('button', { name: '全屏预览', exact: true }).click();
     await page.keyboard.press('Escape');
     assert.equal(await page.evaluate(() => {
-      const cm = document.querySelector('.CodeMirror').CodeMirror;
-      const preview = document.querySelector('.lts-preview');
+      const cm = document.querySelector('#local-text-studio .CodeMirror').CodeMirror;
+      const preview = document.querySelector('#local-text-studio .lts-preview');
       const draft = window.fullscreenDraft;
       return cm.getValue() === draft.text && JSON.stringify(cm.getHistory()) === draft.history &&
         document.querySelector('#local-text-studio').dataset.theme === draft.theme &&
@@ -463,14 +563,14 @@ try {
     await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'true');
     await page.getByRole('button', { name: '全屏预览', exact: true }).click();
     await page.keyboard.press('Control+f');
-    await expect(page.locator('.lts-search input')).toBeFocused();
-    await expect(page.locator('.lts-toolbar')).toBeVisible();
-    await expect(page.locator('.lts-panes')).toHaveAttribute('data-layout', 'split');
+    await expect(page.locator('#local-text-studio .lts-search input')).toBeFocused();
+    await expect(page.locator('#local-text-studio .lts-toolbar')).toBeVisible();
+    await expect(page.locator('#local-text-studio .lts-panes')).toHaveAttribute('data-layout', 'split');
     await page.getByRole('button', { name: '撤销', exact: true }).click();
-    assert.equal(await page.locator('.CodeMirror').evaluate(node => node.CodeMirror.getValue() === window.fullscreenBeforeText), true);
+    assert.equal(await page.locator('#local-text-studio .CodeMirror').evaluate(node => node.CodeMirror.getValue() === window.fullscreenBeforeText), true);
     await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'false');
-    await expect(page.locator('.lts-preview')).not.toContainText('Fullscreen draft paragraph.');
-    await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state', 'ready');
+    await expect(page.locator('#local-text-studio .lts-preview')).not.toContainText('Fullscreen draft paragraph.');
+    await expect(page.locator('#local-text-studio .lts-markmap-card')).toHaveAttribute('data-state', 'ready');
   });
   await check('fullscreen fits a 320px viewport and restores the narrow shell', async () => {
     await page.setViewportSize({ width: 320, height: 900 });
@@ -481,14 +581,14 @@ try {
     await page.screenshot({ path: path.join(run, 'studio-markdown-fullscreen-narrow.png'), fullPage: true });
     await page.keyboard.press('Escape');
     await expect(page.locator('#path-form')).toBeVisible();
-    await expect(page.locator('.lts-toolbar')).toBeVisible();
+    await expect(page.locator('#local-text-studio .lts-toolbar')).toBeVisible();
     await page.setViewportSize({ width: 1440, height: 960 });
   });
   await check('shell size reduction leaves editor and preview computed sizing unchanged', async () => {
     const sizes = await page.evaluate(() => {
-      const selectors = ['#local-text-studio', '.CodeMirror', '.lts-toolbar button',
-        '.lts-preview', '.lts-preview h1', '.lts-preview p', '.lts-mermaid-card',
-        '.lts-markmap-card', '.lts-markmap-frame'];
+      const selectors = ['#local-text-studio', '#local-text-studio .CodeMirror', '#local-text-studio .lts-toolbar button',
+        '#local-text-studio .lts-preview', '#local-text-studio .lts-preview h1', '#local-text-studio .lts-preview p', '#local-text-studio .lts-mermaid-card',
+        '#local-text-studio .lts-markmap-card', '#local-text-studio .lts-markmap-frame'];
       const properties = ['fontSize', 'lineHeight', 'minHeight', 'paddingTop', 'paddingRight',
         'paddingBottom', 'paddingLeft', 'transform', 'zoom'];
       const snapshot = () => selectors.map((selector) => {
@@ -527,7 +627,7 @@ try {
     await page.evaluate(({ target, message }) => {
       const original = window.fetch;
       window.restoreStatusFetch = () => { window.fetch = original; };
-      window.retainedStatusEditor = document.querySelector('.CodeMirror');
+      window.retainedStatusEditor = document.querySelector('#local-text-studio .CodeMirror');
       window.fetch = (input, options) => String(input) === target
         ? new Promise((_, reject) => { window.failStatusRead = () => reject(Error(message)); })
         : original(input, options);
@@ -540,7 +640,7 @@ try {
     await expect(page.locator('#app-status #status')).toHaveText(message);
     await expect(page.locator('#app-status #loading')).toBeHidden();
     await expect(page.locator('#main')).toHaveAttribute('aria-busy', 'false');
-    assert.equal(await page.evaluate(() => document.querySelector('.CodeMirror') === window.retainedStatusEditor), true);
+    assert.equal(await page.evaluate(() => document.querySelector('#local-text-studio .CodeMirror') === window.retainedStatusEditor), true);
     await page.setViewportSize({ width: 320, height: 900 });
     const layout = await page.locator('#app-status').evaluate((footer) => {
       const error = footer.querySelector('#status');
@@ -568,19 +668,19 @@ try {
     await expect(page.locator('#app-status #status')).toBeVisible();
     await expect(page.locator('#app-status .lts-dirty')).toBeVisible();
     await page.getByRole('button', { name: '返回编辑器', exact: true }).click();
-    await expect(page.locator('.CodeMirror')).toBeVisible();
+    await expect(page.locator('#local-text-studio .CodeMirror')).toBeVisible();
     await expect(page.locator('#app-status .editor-status')).toHaveCount(1);
     assert.equal(await page.evaluate(() =>
       document.getElementById('status') === window.statusIdentity &&
       document.getElementById('loading') === window.loadingIdentity), true);
     // Failed navigation retained a duplicate history entry; return to the original document entry.
     await page.goBack();
-    await expect(page.locator('.CodeMirror')).toContainText('中文笔记');
+    await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('中文笔记');
     await expect(page.locator('#app-status #status')).toBeEmpty();
   });
   await check('relative Markdown links open internally and history returns to the document',async()=>{
     await page.getByRole('button', { name: '全屏预览', exact: true }).click();
-    await page.locator('.lts-preview').getByRole('link',{name:'相对文件',exact:true}).click();await expect(page.locator('.CodeMirror')).toContainText('other text');
+    await page.locator('#local-text-studio .lts-preview').getByRole('link',{name:'相对文件',exact:true}).click();await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('other text');
     await expect(page.locator('body')).not.toHaveAttribute('data-preview-fullscreen', 'true');
     await expect(page.locator('.topbar')).toBeVisible();
     await expect(page.getByRole('button', { name: '全屏预览', exact: true })).toHaveCount(0);
@@ -588,8 +688,8 @@ try {
     await expect(page.locator('#app-status .lts-encoding')).toHaveText('UTF-8');
     await expect(page.locator('#app-status #status')).toBeEmpty();
     await expect(page.locator('#app-status .editor-status')).toHaveCount(1);
-    await page.goBack();await expect(page.locator('.CodeMirror')).toContainText('中文笔记');assert.equal(await page.evaluate(()=>window.documentIdentity),'same-document');
-    await expect(page.locator('.lts-mermaid-card')).toHaveAttribute('data-state','ready');await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state','ready');
+    await page.goBack();await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('中文笔记');assert.equal(await page.evaluate(()=>window.documentIdentity),'same-document');
+    await expect(page.locator('#local-text-studio .lts-mermaid-card')).toHaveAttribute('data-state','ready');await expect(page.locator('#local-text-studio .lts-markmap-card')).toHaveAttribute('data-state','ready');
     await expect(page.locator('#app-status #status')).toBeEmpty();
     await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'false');
   });
@@ -597,7 +697,7 @@ try {
   await check('narrow viewport keeps controls inside the window', async () => {
     await page.setViewportSize({ width: 680, height: 900 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    for (const button of await page.locator('.lts-toolbar button:visible').all()) {
+    for (const button of await page.locator('#local-text-studio .lts-toolbar button:visible').all()) {
       const box = await button.boundingBox();
       assert.ok(box.x >= 0 && box.x + box.width <= 681);
     }
@@ -605,59 +705,105 @@ try {
     await page.setViewportSize({ width: 1440, height: 960 });
   });
   await check('theme changes preserve the editor contents', async () => {
-    const before = await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue());
+    const before = await page.locator('#local-text-studio .CodeMirror').evaluate((node) => node.CodeMirror.getValue());
     for (const theme of ['economist', 'vercel', 'light', 'dark']) {
       await page.locator('#theme').selectOption(theme);
-      assert.equal(await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()), before);
+      assert.equal(await page.locator('#local-text-studio .CodeMirror').evaluate((node) => node.CodeMirror.getValue()), before);
       await expect(page.locator('#local-text-studio')).toHaveAttribute('data-theme', theme);
       if (theme === 'vercel') {
-        assert.equal(await page.locator('.CodeMirror').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(255, 255, 255)');
-        assert.equal(await page.locator('.lts-preview').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(250, 250, 250)');
-        await expect(page.locator('.lts-mermaid-card')).toHaveAttribute('data-state', 'ready');
-        await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state', 'ready');
+        assert.equal(await page.locator('#local-text-studio .CodeMirror').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(255, 255, 255)');
+        assert.equal(await page.locator('#local-text-studio .lts-preview').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(250, 250, 250)');
+        await expect(page.locator('#local-text-studio .lts-mermaid-card')).toHaveAttribute('data-state', 'ready');
+        await expect(page.locator('#local-text-studio .lts-markmap-card')).toHaveAttribute('data-state', 'ready');
         await page.screenshot({ path: path.join(run, 'studio-editor-vercel.png'), fullPage: true });
       }
       if (theme === 'economist') {
-        assert.equal(await page.locator('.CodeMirror').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(246, 243, 237)');
-        assert.equal(await page.locator('.lts-preview').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(255, 253, 248)');
-        await expect(page.locator('.lts-mermaid-card')).toHaveAttribute('data-state', 'ready');
-        await expect(page.locator('.lts-markmap-card')).toHaveAttribute('data-state', 'ready');
+        assert.equal(await page.locator('#local-text-studio .CodeMirror').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(246, 243, 237)');
+        assert.equal(await page.locator('#local-text-studio .lts-preview').evaluate((node) => getComputedStyle(node).backgroundColor), 'rgb(255, 253, 248)');
+        await expect(page.locator('#local-text-studio .lts-mermaid-card')).toHaveAttribute('data-state', 'ready');
+        await expect(page.locator('#local-text-studio .lts-markmap-card')).toHaveAttribute('data-state', 'ready');
         await page.screenshot({ path: path.join(run, 'studio-editor-economist.png'), fullPage: true });
-        await page.locator('.lts-preview').getByRole('link', { name: '相对文件', exact: true }).click();
-        await expect(page.locator('.CodeMirror')).toContainText('other text');
+        await page.locator('#local-text-studio .lts-preview').getByRole('link', { name: '相对文件', exact: true }).click();
+        await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('other text');
         await expect(page.locator('#local-text-studio')).toHaveAttribute('data-theme', 'economist');
         await page.goBack();
-        await expect(page.locator('.CodeMirror')).toContainText('中文笔记');
+        await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('中文笔记');
         await expect(page.locator('#local-text-studio')).toHaveAttribute('data-theme', 'economist');
-        assert.equal(await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()), before);
+        assert.equal(await page.locator('#local-text-studio .CodeMirror').evaluate((node) => node.CodeMirror.getValue()), before);
       }
     }
   });
   await page.screenshot({ path: path.join(run, 'studio-editor-dark.png'), fullPage: true });
-  await check('unsaved edits cancel internal navigation and browser history', async () => {
-    await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('# unsaved'));
-    page.once('dialog', (dialog) => dialog.dismiss());
-    await page.locator('#up').click();
-    await expect(page.locator('.CodeMirror')).toBeVisible();
-    assert.equal(
-      await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()),
-      '# unsaved'
-    );
-    page.once('dialog', (dialog) => dialog.dismiss());
-    await page.goBack().catch(() => {});
-    await expect(page.locator('.CodeMirror')).toBeVisible();
-    assert.equal(
-      await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()),
-      '# unsaved'
-    );
-    await expect(page.locator('#app-status .editor-status')).toHaveCount(1);
+  await check('workspace switching retains drafts, undo, preview position and diagram instances', async () => {
+    await page.evaluate(() => {
+      const cm = document.querySelector('#local-text-studio .CodeMirror').CodeMirror;
+      window.workspaceOriginal = cm.getValue();
+      cm.replaceRange('\n\n' + 'Retained workspace draft.\n\n'.repeat(80), { line: cm.lastLine(), ch: cm.getLine(cm.lastLine()).length }, undefined, '+input');
+    });
+    await expect(page.locator('#local-text-studio .lts-preview')).toContainText('Retained workspace draft.');
+    await expect(page.locator('#local-text-studio .lts-markmap-card')).toHaveAttribute('data-state', 'ready');
+    await page.evaluate(() => {
+      const host = document.getElementById('local-text-studio');
+      const cm = host.querySelector('.CodeMirror').CodeMirror;
+      const preview = host.querySelector('.lts-preview');
+      preview.scrollTop = 120;
+      cm.setCursor({ line: 4, ch: 2 });
+      window.workspaceDraft = { host, cm, value: cm.getValue(), history: JSON.stringify(cm.getHistory()),
+        cursor: JSON.stringify(cm.getCursor()), scroll: preview.scrollTop, diagram: host.querySelector('.lts-markmap-frame') };
+    });
+    const other = page.locator('#open-documents .open-document-link').filter({ hasText: 'other.txt' });
+    await other.click();
+    await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('other text');
+    await page.goBack();
     await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'true');
+    assert.equal(await page.evaluate(() => {
+      const draft = window.workspaceDraft;
+      const host = document.getElementById('local-text-studio');
+      const cm = host.querySelector('.CodeMirror').CodeMirror;
+      return host === draft.host && cm === draft.cm && cm.getValue() === draft.value &&
+        JSON.stringify(cm.getHistory()) === draft.history && JSON.stringify(cm.getCursor()) === draft.cursor &&
+        host.querySelector('.lts-markmap-frame') === draft.diagram && Math.abs(host.querySelector('.lts-preview').scrollTop - draft.scroll) <= 1;
+    }), true);
+    await page.locator('#open-search').fill('notes.md');
+    await expect(page.locator('#open-documents .open-document')).toHaveCount(1);
+    await expect(page.locator('#open-documents strong')).toContainText('notes.md *');
+    await expect(page.locator('#open-documents small')).toContainText(fixture);
+    await page.locator('#open-heading').click();
+    await expect(page.locator('#open-content')).toBeHidden();
+    await page.locator('#favorites-heading').click();
+    await expect(page.locator('#favorites')).toBeHidden();
+    await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'true');
+    await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('Retained workspace draft.');
+    await page.locator('#open-heading').click();
+    await expect(page.locator('#open-search')).toHaveValue('notes.md');
+    await expect(page.locator('#open-documents .open-document')).toHaveCount(1);
+    await expect(page.locator('#open-documents strong')).toContainText('notes.md *');
+    await expect(page.locator('#favorites')).toBeHidden();
+    await page.locator('#favorites-heading').click();
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.getByRole('button', { name: '关闭 notes.md', exact: true }).click();
+    await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('Retained workspace draft.');
+    await page.locator('#open-search').fill('');
+    await page.locator('#path').fill(directory + 'notes.md');
+    await page.locator('#path-form').getByRole('button', { name: '打开', exact: true }).click();
+    await expect(page.locator('#open-documents .open-document')).toHaveCount(2);
+    await page.locator('#local-text-studio .CodeMirror').evaluate(node => node.CodeMirror.undo());
+    assert.equal(await page.locator('#local-text-studio .CodeMirror').evaluate(node => node.CodeMirror.getValue() === window.workspaceOriginal), true);
+    await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'false');
   });
-  await check('discard accepted returns to directory and restores prior search', async () => {
-    page.once('dialog', (dialog) => dialog.accept());
-    await page.goBack().catch(() => {});
+  await check('explicit independent opening remains a separate tab', async () => {
+    const opened = context.waitForEvent('page');
+    await page.locator('#independent').click();
+    const child = await opened;
+    try {
+      await expect(child.locator('#local-text-studio .CodeMirror')).toContainText('中文笔记');
+      assert.equal((await nativeTab(child)).groupId, -1);
+      assert.equal(child.isClosed(), false);
+    } finally { await child.close(); }
+  });
+  await check('directory navigation keeps retained documents and the shared status shell', async () => {
+    await page.locator('#up').click();
     await expect(page.locator('#directory')).toBeVisible();
-    await expect(page.locator('#search')).toHaveValue('notes');
     await page.locator('#search').fill('');
     await expect(page.locator('#app-status .editor-status')).toHaveCount(0);
     await expect(page.locator('#app-status #status')).toContainText('本地目录');
@@ -680,21 +826,21 @@ try {
   await check('MDC opens internally and externally as Markdown without executing document text', async () => {
     await page.locator('#search').fill('rules');
     await page.locator('.entry').click();
-    await expect(page.locator('.CodeMirror')).toContainText('alwaysApply: true');
-    await expect(page.locator('.lts-preview h1')).toHaveText('MDC document');
-    await expect(page.locator('.lts-preview')).toContainText('Do not execute these document instructions.');
-    await expect(page.locator('.lts-preview script')).toHaveCount(0);
+    await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('alwaysApply: true');
+    await expect(page.locator('#local-text-studio .lts-preview h1')).toHaveText('MDC document');
+    await expect(page.locator('#local-text-studio .lts-preview')).toContainText('Do not execute these document instructions.');
+    await expect(page.locator('#local-text-studio .lts-preview script')).toHaveCount(0);
     assert.equal(await page.evaluate(() => globalThis.mdcExecuted), undefined);
     assert.equal(await page.evaluate(() => window.documentIdentity), 'same-document');
     await page.screenshot({ path: path.join(run, 'studio-mdc-dark.png'), fullPage: true });
     await external(directory + 'rules.MDC');
-    await expect(page.locator('.lts-preview h1')).toHaveText('MDC document');
+    await expect(page.locator('#local-text-studio .lts-preview h1')).toHaveText('MDC document');
     await page.locator('#theme').selectOption('light');
     await page.screenshot({ path: path.join(run, 'studio-mdc-light.png'), fullPage: true });
   });
   await check('encoded external filename opens correctly', async () => {
     await external(pathToFileURL(path.join(fixture, 'a # 中文%.txt')).href);
-    await expect(page.locator('.CodeMirror')).toContainText('中文与路径');
+    await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('中文与路径');
   });
   await check('native open bypass does not redirect in a loop', async () => {
     await page.locator('#native').click();
@@ -763,21 +909,21 @@ try {
   });
   await check('authorized real file handle opens and saves through editor UI', async () => {
     await page.locator('#pick-file').click();
-    await expect(page.locator('.CodeMirror')).toBeVisible();
+    await expect(page.locator('#local-text-studio .CodeMirror')).toBeVisible();
     await expect(page.locator('#path')).toHaveValue(/不提供绝对路径/);
-    await expect(page.locator('.lts-preview h1')).toHaveText('authorized');
-    await expect(page.locator('.lts-preview')).toContainText('alwaysApply: true');
+    await expect(page.locator('#local-text-studio .lts-preview h1')).toHaveText('authorized');
+    await expect(page.locator('#local-text-studio .lts-preview')).toContainText('alwaysApply: true');
     await page.screenshot({ path: path.join(run, 'studio-picked-mdc.png'), fullPage: true });
-    await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('# saved\n'));
-    await page.locator('.CodeMirror').click();await page.keyboard.press('Control+s');
-    await expect(page.locator('.lts-notice')).toContainText('已保存原文件');
+    await page.locator('#local-text-studio .CodeMirror').evaluate((node) => node.CodeMirror.setValue('# saved\n'));
+    await page.locator('#local-text-studio .CodeMirror').click();await page.keyboard.press('Control+s');
+    await expect(page.locator('#app-status .lts-notice')).toContainText('已保存原文件');
     await expect(page.locator('#app-status .lts-notice')).toBeVisible();
     await expect(page.locator('#app-status .lts-notice')).toContainText('已保存原文件');
     assert.equal(await page.evaluate(async () => (await window.testHandle.getFile()).text()), '# saved\n');
-    await expect(page.locator('.lts-dirty')).toHaveText('未修改');
+    await expect(page.locator('#app-status .lts-dirty')).toHaveText('未修改');
   });
   await check('download copy leaves the original untouched and does not clear dirty state', async () => {
-    await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('# downloaded only\n'));
+    await page.locator('#local-text-studio .CodeMirror').evaluate((node) => node.CodeMirror.setValue('# downloaded only\n'));
     const [download] = await Promise.all([
       page.waitForEvent('download'),
       page.getByRole('button', { name: '下载编辑副本', exact: true }).click()
@@ -785,7 +931,7 @@ try {
     assert.equal(download.suggestedFilename(), 'authorized.edited.MDC');
     assert.equal(await readFile(await download.path(), 'utf8'), '# downloaded only\n');
     assert.equal(await page.evaluate(async () => (await window.testHandle.getFile()).text()), '# saved\n');
-    await expect(page.locator('.lts-dirty')).toHaveAttribute('data-dirty', 'true');
+    await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'true');
     await expect(page.locator('#app-status .lts-notice')).toContainText('原文件未改动');
     await expect(page.locator('#app-status .lts-notice')).toBeVisible();
     await page.screenshot({ path: path.join(run, 'studio-status-download.png'), fullPage: true });
@@ -808,17 +954,35 @@ try {
         };
       };
     });
-    await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('# snapshot\n'));
+    await page.locator('#local-text-studio .CodeMirror').evaluate((node) => node.CodeMirror.setValue('# snapshot\n'));
     await page.getByRole('button', { name: '授权后保存原文件 (Ctrl+S)', exact: true }).click();
     await expect.poll(() => page.evaluate(() => typeof window.releaseSave)).toBe('function');
-    await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('# newer unsaved\n'));
+    await page.locator('#local-text-studio .CodeMirror').evaluate((node) => node.CodeMirror.setValue('# newer unsaved\n'));
+    await page.locator('#path').fill(directory + 'other.txt');
+    await page.locator('#path-form').getByRole('button', { name: '打开', exact: true }).click();
+    await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('other text');
+    await page.getByRole('button', { name: '关闭 authorized.MDC', exact: true }).click();
+    await expect(page.locator('#status')).toContainText('正在保存');
+    await expect(page.locator('#open-documents .open-document')).toHaveCount(2);
     await page.evaluate(() => {
       window.releaseSave();
       window.restoreWritable();
     });
-    await expect(page.locator('.lts-notice')).toContainText('之后的修改仍未保存');
+    await page.locator('#open-documents .open-document-link').filter({ hasText: 'authorized.MDC' }).click();
+    await expect(page.locator('#app-status .lts-notice')).toContainText('之后的修改仍未保存');
     assert.equal(await page.evaluate(async () => (await window.testHandle.getFile()).text()), '# snapshot\n');
-    await expect(page.locator('.lts-dirty')).toHaveAttribute('data-dirty', 'true');
+    await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'true');
+    await page.locator('#local-text-studio').evaluate(node => { window.pickedDuplicateEditor = node; });
+    await page.evaluate(() => {
+      if (!Number.isInteger(history.state?.index) || history.state.index <= 0) throw Error('Expected workspace history before returning to the file picker');
+      history.go(-history.state.index);
+    });
+    await expect(page.locator('#welcome')).toBeVisible();
+    await expect(page.locator('#open-documents .open-document')).toHaveCount(2);
+    await page.locator('#pick-file').click();
+    await expect(page.locator('#open-documents .open-document')).toHaveCount(2);
+    await expect(page.locator('#local-text-studio .CodeMirror')).toContainText('# newer unsaved');
+    assert.equal(await page.locator('#local-text-studio').evaluate(node => node === window.pickedDuplicateEditor), true);
   });
   await check('external disk edits prevent overwrite and preserve the draft', async () => {
     await page.evaluate(async () => {
@@ -827,7 +991,7 @@ try {
       await stream.close();
     });
     await page.getByRole('button', { name: '授权后保存原文件 (Ctrl+S)', exact: true }).click();
-    await expect(page.locator('.lts-notice')).toContainText('磁盘文件已被其他程序修改');
+    await expect(page.locator('#app-status .lts-notice')).toContainText('磁盘文件已被其他程序修改');
     await expect(page.locator('#app-status .lts-notice')).toBeVisible();
     await page.setViewportSize({ width: 320, height: 900 });
     const errorFits = await page.locator('#app-status .lts-notice').evaluate((node) => {
@@ -841,8 +1005,8 @@ try {
       await page.evaluate(async () => (await window.testHandle.getFile()).text()),
       '# external change\n'
     );
-    await expect(page.locator('.lts-dirty')).toHaveAttribute('data-dirty', 'true');
-    await page.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('# snapshot\n'));
+    await expect(page.locator('#app-status .lts-dirty')).toHaveAttribute('data-dirty', 'true');
+    await page.locator('#local-text-studio .CodeMirror').evaluate((node) => node.CodeMirror.setValue('# snapshot\n'));
   });
   await check('browser cold start with a file argument opens Studio', async () => {
     const profile = path.join(run, 'cold-profile');
@@ -888,7 +1052,7 @@ try {
         )
         .toBe(true);
       const tab = pages().find((tab) => tab.url().startsWith(studio));
-      await expect(tab.locator('.CodeMirror')).toContainText('other text');
+      await expect(tab.locator('#local-text-studio .CodeMirror')).toContainText('other text');
     } finally {
       await cold?.close();
       process_.kill();
@@ -912,12 +1076,14 @@ try {
     };
     try {
       await recentPage.goto(studio);
+      // Keep this capture fixture in its own window; peer observes storage cross-window.
+      await recentPage.evaluate(async () => chrome.windows.create({ tabId: (await chrome.tabs.getCurrent()).id }));
       await peer.goto(studio);
       await recentPage.evaluate(() => chrome.storage.local.set({ recentExternalFiles: [] }));
       await expect(peer.locator('#recent-files a')).toHaveCount(0);
       await recentPage.locator('#path').fill(textURL);
       await recentPage.locator('#path-form').getByRole('button', { name: '打开', exact: true }).click();
-      await expect(recentPage.locator('.CodeMirror')).toContainText('other text');
+      await expect(recentPage.locator('#local-text-studio .CodeMirror')).toContainText('other text');
       assert.deepEqual(await stored(), []);
       await recentPage.goto(studio + '#' + encodeURIComponent(directory));
       await recentPage.locator('#search').fill('other.txt');
@@ -930,17 +1096,18 @@ try {
         try {
           watchPage(child);
           await expect.poll(() => child.url()).toBe(studio + '#' + encodeURIComponent(textURL));
-          await expect(child.locator('.CodeMirror')).toContainText('other text');
+          await expect(child.locator('#local-text-studio .CodeMirror')).toContainText('other text');
+          assert.equal((await nativeTab(child)).groupId, -1);
           assert.deepEqual(await stored(), []);
         } finally {
           await child.close();
         }
       }
       await internal.click();
-      await expect(recentPage.locator('.CodeMirror')).toContainText('other text');
+      await expect(recentPage.locator('#local-text-studio .CodeMirror')).toContainText('other text');
       assert.deepEqual(await stored(), []);
       await capture(textURL);
-      await expect(recentPage.locator('.CodeMirror')).toContainText('other text');
+      await expect(recentPage.locator('#local-text-studio .CodeMirror')).toContainText('other text');
       await expect.poll(stored).toEqual([textURL]);
       await expect(peer.locator('#recent-files a')).toHaveText(['other.txt']);
       await capture(imageURL);
@@ -958,18 +1125,15 @@ try {
       await expect(recentPage.locator('#recent-files a')).toHaveText(['other.txt', 'recent-picture.png']);
       await expect(peer.locator('#recent-files a')).toHaveText(['other.txt', 'recent-picture.png']);
       await recentPage.screenshot({ path: path.join(run, 'studio-recent-files.png'), fullPage: true });
-      await recentPage.locator('.CodeMirror').evaluate((node) => node.CodeMirror.setValue('unsaved recent draft'));
-      recentPage.once('dialog', (dialog) => dialog.dismiss());
-      await recentPage.locator('#recent-files').getByRole('link', { name: 'recent-picture.png', exact: true }).click();
-      assert.equal(await recentPage.locator('.CodeMirror').evaluate((node) => node.CodeMirror.getValue()), 'unsaved recent draft');
-      assert.deepEqual(await stored(), [textURL, imageURL]);
-      recentPage.once('dialog', (dialog) => dialog.accept());
+      await recentPage.locator('#local-text-studio .CodeMirror').evaluate((node) => node.CodeMirror.setValue('unsaved recent draft'));
       await recentPage.locator('#recent-files').getByRole('link', { name: 'recent-picture.png', exact: true }).click();
       await expect(recentPage.locator('.iv-image')).toHaveAttribute('src', imageURL);
       assert.deepEqual(await stored(), [textURL, imageURL]);
       await recentPage.keyboard.press('Escape');
-      await recentPage.goto(studio + '#' + encodeURIComponent(textURL));
-      await expect(recentPage.locator('.CodeMirror')).toContainText('other text');
+      await recentPage.locator('#open-documents .open-document-link').filter({ hasText: 'other.txt' }).click();
+      assert.equal(await recentPage.locator('#local-text-studio .CodeMirror').evaluate(node => node.CodeMirror.getValue()), 'unsaved recent draft');
+      await recentPage.locator('#local-text-studio .CodeMirror').evaluate(node => node.CodeMirror.undo());
+      await expect(recentPage.locator('#local-text-studio .CodeMirror')).toContainText('other text');
       await recentPage.locator('#native').click();
       await recentPage.waitForURL((url) => url.protocol === 'file:');
       await recentPage.reload();
@@ -989,8 +1153,8 @@ try {
       await syntaxPage.goto(studio + '#' + encodeURIComponent(pathToFileURL(syntaxPath).href));
       await syntaxPage.locator('#theme').selectOption('light');
       const categories = ['keyword', 'string', 'number', 'comment'];
-      for (const category of categories) await expect(syntaxPage.locator('.CodeMirror .cm-' + category).first()).toBeVisible();
-      const colors = () => syntaxPage.locator('.CodeMirror').evaluate((editor, names) =>
+      for (const category of categories) await expect(syntaxPage.locator('#local-text-studio .CodeMirror .cm-' + category).first()).toBeVisible();
+      const colors = () => syntaxPage.locator('#local-text-studio .CodeMirror').evaluate((editor, names) =>
         Object.fromEntries(names.map((name) => [name, getComputedStyle(editor.querySelector('.cm-' + name)).color])), categories);
       const lightColors = await colors();
       assert.equal(new Set(Object.values(lightColors)).size, categories.length);
@@ -1000,7 +1164,7 @@ try {
       }
       await syntaxPage.locator('#theme').selectOption('vercel');
       assert.deepEqual(await colors(), lightColors);
-      assert.equal(await syntaxPage.locator('.CodeMirror').evaluate((editor) => getComputedStyle(editor).backgroundColor), 'rgb(255, 255, 255)');
+      assert.equal(await syntaxPage.locator('#local-text-studio .CodeMirror').evaluate((editor) => getComputedStyle(editor).backgroundColor), 'rgb(255, 255, 255)');
     } finally {
       await syntaxPage.close();
     }

@@ -94,7 +94,7 @@ test('shared editor initialization and public setTheme preserve all themes and n
       host: { dataset: {} },
       themeButton: { setAttribute() {} },
       root: { setAttribute(name, value) { rootAttributes[name] = value; } },
-      nativeNodes: [], documentStyle: {}, original: false,
+      nativeNodes: [], documentStyle: {}, original: false, active: true,
       renderPreview() {},
       adapter: { ready(api) { context.api = api; } }
     });

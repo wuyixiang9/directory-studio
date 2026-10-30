@@ -17,6 +17,7 @@ for (const name of [
   'model.js',
   'recent-files.js',
   'navigation.js',
+  'workspace-routing.js',
   'studio.html',
   'studio.css',
   'studio.js',
